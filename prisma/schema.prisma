@@ -1,0 +1,17 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Phase 2 will define the actual data model (Room, Booking, Guest, Payment, etc.)
+// per the entities agreed in the Phase 0 architecture. Intentionally left
+// empty here — Phase 1 only establishes that Prisma is wired up correctly.
