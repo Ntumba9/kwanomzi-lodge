@@ -1,13 +1,49 @@
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@import "tailwindcss";
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/*
+ * KwaNomzi design tokens — derived from the official logo (black badge,
+ * soft blue water droplets, warm gray wordmark/script, blue italic
+ * tagline). This is now the real brand palette, not a placeholder — see
+ * the Phase 3.5 implementation report for the extraction reasoning.
+ * Everything in the UI is built on top of these tokens, so a future
+ * brand-guideline update only needs to change values here.
+ */
+@theme {
+  /* next/font (see app/layout.tsx) injects --font-fraunces / --font-inter
+     with the resolved font + fallback stack; these tokens just point at
+     them so Tailwind's font-display / font-sans utilities work. */
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* Ink — the logo's black badge background; used for header/footer/hero
+     "bookend" sections rather than the whole page, so the site reads as
+     premium hospitality rather than a dark SaaS dashboard. */
+  --color-ink-950: #0b0c0e;
+  --color-ink-900: #141518;
+  --color-ink-800: #202226;
+  --color-ink-700: #3a3d42;
+
+  /* Mist — cool off-white for main content backgrounds (pairs with the
+     logo's black/blue/gray better than a warm cream would). */
+  --color-mist-50: #f8f9fa;
+  --color-mist-100: #eef0f2;
+  --color-mist-200: #e2e5e8;
+
+  /* Stone — the warm-cool gray from the "omzi" wordmark and the
+     "Boutique Lodge" script. */
+  --color-stone-300: #b7bcc1;
+  --color-stone-400: #9aa0a6;
+  --color-stone-500: #7c8288;
+  --color-stone-600: #5f656b;
+
+  /* Lagoon — the droplet blue. 600 is a deepened variant of the same hue
+     for AA-contrast text/buttons on light backgrounds; the logo's actual
+     droplet blue is closer to 400/500. */
+  --color-lagoon-300: #a8cbe8;
+  --color-lagoon-400: #7fb0da;
+  --color-lagoon-500: #5b98c9;
+  --color-lagoon-600: #427cae;
+  --color-lagoon-700: #315f87;
 }
 
 html {
@@ -22,28 +58,13 @@ body {
 
 body {
   min-height: 100%;
-  display: flex;
-  flex-direction: column;
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-mist-50);
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 * {
   box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
 }

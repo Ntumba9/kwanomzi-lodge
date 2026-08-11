@@ -1,7 +1,19 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// KwaNomzi — Phase 2 data model (MySQL).
+//
+// See the Phase 2 architecture discussion for full rationale. Two points
+// worth restating here because they're easy to miss just reading columns:
+//
+// 1. BookingNight is the double-booking prevention mechanism. MySQL has no
+//    equivalent to Postgres's EXCLUDE constraint, so overlapping-range
+//    exclusion is converted into a row-uniqueness problem: one row per
+//    occupied night, with UNIQUE(room_id, stay_date). The database itself
+//    rejects a second booking claiming an already-claimed night — this is
+//    enforced independent of any application-level pre-check.
+//
+// 2. Booking.pricePerNightCents / totalAmountCents are historical snapshots
+//    written once at booking creation. They must never be recalculated from
+//    RoomType/Room pricing later — a later price change must not alter a
+//    historical booking's agreed amount.
 
 generator client {
   provider = "prisma-client"
@@ -9,9 +21,298 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
 }
 
-// Phase 2 will define the actual data model (Room, Booking, Guest, Payment, etc.)
-// per the entities agreed in the Phase 0 architecture. Intentionally left
-// empty here — Phase 1 only establishes that Prisma is wired up correctly.
+enum UserRole {
+  ADMIN
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         UserRole @default(ADMIN)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  auditLogs AuditLog[]
+
+  @@map("user")
+}
+
+model Guest {
+  id              Int      @id @default(autoincrement())
+  firstName       String
+  lastName        String
+  email           String
+  phone           String?
+  specialRequests String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  bookings Booking[]
+
+  // Not unique: households/groups may share an email, and guest identity
+  // isn't security-critical the way a User login is. "Find or create by
+  // email" is a service-layer concern, not a hard DB constraint.
+  @@index([email])
+  @@map("guest")
+}
+
+model RoomType {
+  id             Int      @id @default(autoincrement())
+  name           String
+  description    String?  @db.Text
+  capacity       Int
+  basePriceCents Int      @db.UnsignedInt
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  rooms     Room[]
+  amenities Amenity[]   @relation("RoomTypeAmenities")
+  images    RoomImage[]
+
+  @@map("room_type")
+}
+
+model Room {
+  id   Int    @id @default(autoincrement())
+  name String
+
+  // Nullable overrides of the RoomType defaults, for the rare physical unit
+  // that genuinely differs (e.g. one unit priced higher for a better view).
+  // Absent a confirmed need for per-room amenities/images, those stay at
+  // the RoomType level per the approved architecture.
+  capacity           Int?
+  priceOverrideCents Int?     @db.UnsignedInt
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  roomTypeId Int
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id])
+
+  bookings      Booking[]
+  bookingNights BookingNight[]
+
+  @@unique([roomTypeId, name])
+  @@index([roomTypeId])
+  @@map("room")
+}
+
+model Amenity {
+  id   Int     @id @default(autoincrement())
+  name String  @unique
+  icon String?
+
+  roomTypes RoomType[] @relation("RoomTypeAmenities")
+
+  @@map("amenity")
+}
+
+model RoomImage {
+  id           Int      @id @default(autoincrement())
+  url          String
+  altText      String?
+  displayOrder Int      @default(0)
+  isPrimary    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  roomTypeId Int
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+
+  @@index([roomTypeId])
+  @@map("room_image")
+}
+
+enum BookingStatus {
+  PENDING
+  PAYMENT_PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  EXPIRED
+}
+
+model Booking {
+  id               Int    @id @default(autoincrement())
+  bookingReference String @unique
+
+  checkIn  DateTime @db.Date
+  checkOut DateTime @db.Date
+  // Derivable from checkIn/checkOut; persisted for query/display convenience
+  // and as part of the historical snapshot. checkIn/checkOut remain the
+  // source of truth.
+  nights   Int
+
+  // Historical snapshots, immutable after creation — see file header.
+  pricePerNightCents Int    @db.UnsignedInt
+  totalAmountCents   Int    @db.UnsignedInt
+  currency           String @default("ZAR") @db.Char(3)
+
+  status          BookingStatus @default(PENDING)
+  specialRequests String?       @db.Text
+
+  // Party size. Nullable — not captured before Phase 4; older/manually
+  // created rows may not have it. Display-only, never used in pricing.
+  guestCount Int?
+
+  // Set at creation from a configurable Setting value (never hardcoded).
+  // Phase 4 adds the actual sweep (BookingService.expireStaleHolds,
+  // exposed at POST /api/internal/expire-holds) that expires
+  // PAYMENT_PENDING bookings past this timestamp and releases their
+  // BookingNight rows via the existing transitionBooking() path.
+  holdExpiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  guestId Int
+  guest   Guest @relation(fields: [guestId], references: [id])
+
+  roomId Int
+  room   Room @relation(fields: [roomId], references: [id])
+
+  bookingNights BookingNight[]
+  payments      Payment[]
+
+  @@index([roomId])
+  @@index([status, checkIn])
+  @@index([guestId])
+  @@map("booking")
+}
+
+// The double-booking prevention mechanism. One row per night a booking
+// occupies a room. UNIQUE(room_id, stay_date) makes MySQL itself the
+// authority: two bookings cannot both claim the same room on the same
+// night, regardless of application-level timing or bugs.
+//
+// Rows exist for the lifetime of a hold/confirmed stay (created at booking
+// creation, i.e. status PENDING onward) and are only deleted when a booking
+// becomes CANCELLED or EXPIRED. CHECKED_OUT bookings keep their rows as
+// historical occupancy data.
+model BookingNight {
+  id       Int      @id @default(autoincrement())
+  stayDate DateTime @db.Date
+
+  bookingId Int
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  roomId Int
+  room   Room @relation(fields: [roomId], references: [id])
+
+  @@unique([roomId, stayDate])
+  @@index([bookingId])
+  @@map("booking_night")
+}
+
+enum PaymentStatus {
+  INITIATED
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+model Payment {
+  id       Int    @id @default(autoincrement())
+  provider String @default("yoco")
+
+  // Null until the Yoco checkout is created; unique once set (MySQL allows
+  // multiple NULLs in a unique index, which is correct here). Doubles as a
+  // secondary idempotency safety net alongside WebhookEvent below.
+  providerReference String? @unique
+
+  amountCents Int           @db.UnsignedInt
+  currency    String        @default("ZAR") @db.Char(3)
+  status      PaymentStatus @default(INITIATED)
+  metadata    Json?
+
+  // Set exactly once, by the webhook handler, when status first becomes
+  // SUCCEEDED. Deliberately not inferred from updatedAt — a later refund
+  // would also touch updatedAt and silently corrupt "when was this paid".
+  paidAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookingId Int
+  booking   Booking @relation(fields: [bookingId], references: [id])
+
+  webhookEvents WebhookEvent[]
+
+  @@index([bookingId])
+  @@index([status])
+  @@map("payment")
+}
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+}
+
+// Idempotency ledger for Yoco webhooks (Phase 8 will consume this).
+// UNIQUE(provider, event_id) is the actual dedup mechanism — the same
+// pattern as BookingNight: an event is recorded by attempting an insert
+// keyed on the provider's event id inside the transaction that applies its
+// side effects, and a duplicate delivery simply fails that insert.
+//
+// paymentId is nullable and deliberately not required: an event must be
+// recordable and deduplicated even before it can be matched to a Payment.
+model WebhookEvent {
+  id          Int                @id @default(autoincrement())
+  provider    String
+  eventId     String
+  eventType   String
+  payload     Json
+  status      WebhookEventStatus @default(RECEIVED)
+  receivedAt  DateTime           @default(now())
+  processedAt DateTime?
+
+  paymentId Int?
+  payment   Payment? @relation(fields: [paymentId], references: [id])
+
+  @@unique([provider, eventId])
+  @@index([paymentId])
+  @@map("webhook_event")
+}
+
+// Append-only. No updatedAt — a log entry doesn't change after the fact.
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  // Nullable: some entries are system-generated (e.g. automatic hold expiry),
+  // not attributable to a specific admin user.
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@map("audit_log")
+}
+
+// Lodge-level configuration, e.g. BOOKING_HOLD_MINUTES — read by the
+// service layer when computing Booking.holdExpiresAt. Exists specifically
+// so the hold duration is configurable rather than hardcoded, since it
+// hasn't been finalized as a client business rule yet.
+model Setting {
+  key         String   @id
+  value       String   @db.Text
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("setting")
+}
