@@ -21,5 +21,12 @@ export async function verifyCredentials(email: string, password: string): Promis
   const valid = await verifyPassword(user.passwordHash, password);
   if (!valid) return null;
 
+  // Fire-and-forget: a slow/failed write here must never block or fail a
+  // successful login. lastLoginAt is shown on the staff list (Section 11);
+  // it's informational, not part of the auth decision itself.
+  prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch((err) => {
+    console.error(`Failed to record lastLoginAt for user ${user.id}:`, err);
+  });
+
   return { id: String(user.id), email: user.email, name: user.name, role: user.role };
 }

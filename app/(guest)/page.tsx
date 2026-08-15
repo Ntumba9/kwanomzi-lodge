@@ -1,13 +1,35 @@
+import Image from "next/image";
 import { listActiveRoomTypes } from "@/lib/services/RoomService";
 import { getRateCard } from "@/lib/settings";
-import { business } from "@/lib/content/business";
-import { siteImages } from "@/lib/content/images";
+import { business, whatsappUrl } from "@/lib/content/business";
+import { siteImages, siteVideos } from "@/lib/content/images";
 import { RoomCard } from "@/components/RoomCard";
 import { RateTable } from "@/components/RateTable";
-import { LocationMapPlaceholder } from "@/components/LocationMapPlaceholder";
-import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { LocationMap } from "@/components/LocationMap";
+import { HeroMedia } from "@/components/HeroMedia";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+
+const trustSignals = [
+  "Instant email confirmation",
+  "Secure payment via Yoco",
+  "Book direct — no third-party fees",
+  "No account needed to book",
+];
+
+// A genuine photograph of one of KwaNomzi's rooms — used here purely to
+// break up the page with real imagery while full exterior/grounds
+// photography hasn't been supplied yet. Never implied to be anything other
+// than what it is (see alt text).
+const introImage = { src: "/images/rooms/Deluxe king Room.png", alt: "One of the rooms at KwaNomzi Boutique Lodge" };
+
+// Reads live room/rate data from the database on every request. Without
+// this, Next.js's default behavior is to statically prerender this page at
+// `next build` time — which means querying the database during the Vercel
+// build itself, before any production DATABASE_URL/database necessarily
+// exists. Forcing dynamic rendering defers that query to real request time,
+// same as every other DB-backed route in this app already does.
+export const dynamic = "force-dynamic";
 
 export default async function GuestHomePage() {
   const [roomTypes, rateCard] = await Promise.all([listActiveRoomTypes(), getRateCard()]);
@@ -17,14 +39,38 @@ export default async function GuestHomePage() {
     new Map(roomTypes.flatMap((rt) => rt.amenities).map((a) => [a.id, a])).values(),
   );
 
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "LodgingBusiness",
+    name: business.name,
+    description: business.tagline,
+    telephone: business.phone,
+    email: business.email,
+    address: {
+      "@type": "PostalAddress",
+      streetAddress: business.address.line1,
+      addressLocality: "Lusikisiki",
+      addressRegion: "Eastern Cape",
+      addressCountry: "ZA",
+    },
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        // Structured data has no user-facing rendering of its own, so
+        // dangerouslySetInnerHTML is the standard/only way to emit it — the
+        // content is our own serialized object above, not user input.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
+
       {/* Hero */}
       <section className="relative flex min-h-[85vh] items-end overflow-hidden bg-ink-950">
-        <PlaceholderImage
-          label={siteImages.hero.alt}
-          src={siteImages.hero.src}
-          showLabel={false}
+        <HeroMedia
+          video={siteVideos.hero}
+          fallbackImageSrc={siteImages.hero.src}
+          fallbackImageAlt={siteImages.hero.alt}
           className="absolute inset-0"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-ink-950/90 via-ink-950/30 to-transparent" />
@@ -53,14 +99,42 @@ export default async function GuestHomePage() {
         </div>
       </section>
 
+      {/* Trust strip */}
+      <section className="border-b border-mist-200 bg-mist-50">
+        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-x-4 gap-y-4 px-4 py-6 md:flex md:items-center md:justify-center md:gap-10 md:px-8">
+          {trustSignals.map((signal) => (
+            <div key={signal} className="flex items-center gap-2">
+              <CheckIcon className="h-4 w-4 shrink-0 text-lagoon-600" />
+              <span className="text-xs font-medium text-ink-700 md:text-sm">{signal}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* Lodge introduction */}
-      <section className="mx-auto max-w-3xl px-4 py-20 text-center md:px-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-lagoon-600">Welcome</p>
-        <h2 className="mt-3 font-display text-3xl text-ink-900 md:text-4xl">The KwaNomzi story</h2>
-        <p className="mt-5 text-ink-700/80">
-          Lodge introduction copy has not been supplied yet — this is a placeholder for KwaNomzi&rsquo;s real story,
-          history and philosophy, easy to replace once that content is provided.
-        </p>
+      <section className="mx-auto max-w-6xl px-4 py-20 md:px-8">
+        <div className="grid gap-10 md:grid-cols-2 md:items-center">
+          <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl md:aspect-[16/11]">
+            <Image
+              src={introImage.src}
+              alt={introImage.alt}
+              fill
+              sizes="(min-width: 768px) 50vw, 100vw"
+              className="object-cover"
+            />
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-lagoon-600">Welcome</p>
+            <h2 className="mt-3 font-display text-3xl text-ink-900 md:text-4xl">The KwaNomzi story</h2>
+            <p className="mt-5 text-ink-700/80">
+              Lodge introduction copy has not been supplied yet — this is a placeholder for KwaNomzi&rsquo;s real
+              story, history and philosophy, easy to replace once that content is provided.
+            </p>
+            <Button href="/rooms" variant="secondary" className="mt-6">
+              Explore Rooms
+            </Button>
+          </div>
+        </div>
       </section>
 
       {/* Accommodation */}
@@ -98,7 +172,13 @@ export default async function GuestHomePage() {
           <h2 className="mt-3 font-display text-3xl text-ink-900 md:text-4xl">Everything you need, quietly provided</h2>
           <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {amenities.map((amenity) => (
-              <div key={amenity.id} className="rounded-2xl border border-mist-200 bg-white p-6">
+              <div
+                key={amenity.id}
+                className="flex items-center gap-4 rounded-2xl border border-mist-200 bg-white p-6 transition-shadow hover:shadow-sm"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-lagoon-500/10">
+                  <CheckIcon className="h-5 w-5 text-lagoon-600" />
+                </span>
                 <p className="font-display text-lg text-ink-900">{amenity.name}</p>
               </div>
             ))}
@@ -163,11 +243,29 @@ export default async function GuestHomePage() {
                   {business.email}
                 </a>
               </li>
+              <li>
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 hover:text-ink-900"
+                >
+                  Chat on WhatsApp →
+                </a>
+              </li>
             </ul>
           </div>
-          <LocationMapPlaceholder />
+          <LocationMap />
         </div>
       </section>
     </>
+  );
+}
+
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className={className} aria-hidden>
+      <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }

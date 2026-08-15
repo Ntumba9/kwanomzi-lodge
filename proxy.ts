@@ -8,15 +8,15 @@ import { auth } from "@/auth";
  */
 export const proxy = auth((req) => {
   const { pathname } = req.nextUrl;
-  const isLoginPage = pathname === "/admin/login";
+  const isLoginPage = pathname === "/staff/login";
 
   if (!isLoginPage && !req.auth) {
-    const loginUrl = new URL("/admin/login", req.nextUrl.origin);
+    const loginUrl = new URL("/staff/login", req.nextUrl.origin);
     loginUrl.searchParams.set("from", pathname);
     return Response.redirect(loginUrl);
   }
 });
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/staff/:path*"],
 };

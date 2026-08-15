@@ -24,19 +24,33 @@ datasource db {
   provider = "mysql"
 }
 
+// OWNER: full access. MANAGER: day-to-day operations short of staff/audit
+// access. RECEPTION: front-desk booking/guest operations. HOUSEKEEPING: room
+// operational status only, no booking/guest/financial data. READ_ONLY: view
+// access to a limited set of operational screens, no mutations anywhere.
+// Permission-to-role mapping lives in lib/auth/permissions.ts, not here —
+// this enum only names the roles the database can store.
 enum UserRole {
-  ADMIN
+  OWNER
+  MANAGER
+  RECEPTION
+  HOUSEKEEPING
+  READ_ONLY
 }
 
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
   name         String
   passwordHash String
-  role         UserRole @default(ADMIN)
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  // Least-privilege default: a row created without an explicit role (should
+  // never happen via the app's own create paths, all of which set it
+  // explicitly) gets the smallest possible grant, not silently OWNER.
+  role         UserRole  @default(READ_ONLY)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   auditLogs AuditLog[]
 
@@ -79,6 +93,19 @@ model RoomType {
   @@map("room_type")
 }
 
+// Housekeeping/front-desk operational state — distinct from Booking.status.
+// A room's booking state (has an active reservation or not) is derived from
+// its Booking rows; this is the physical, on-the-ground state staff track
+// day to day (has it been cleaned since the last checkout, is it out of
+// service). AVAILABLE is the default a room returns to once housekeeping
+// clears it.
+enum RoomOperationalStatus {
+  AVAILABLE
+  OCCUPIED
+  CLEANING
+  MAINTENANCE
+}
+
 model Room {
   id   Int    @id @default(autoincrement())
   name String
@@ -88,10 +115,11 @@ model Room {
   // Absent a confirmed need for per-room amenities/images, those stay at
   // the RoomType level per the approved architecture.
   capacity           Int?
-  priceOverrideCents Int?     @db.UnsignedInt
-  isActive           Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  priceOverrideCents Int?                  @db.UnsignedInt
+  isActive           Boolean               @default(true)
+  operationalStatus  RoomOperationalStatus @default(AVAILABLE)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
   roomTypeId Int
   roomType   RoomType @relation(fields: [roomTypeId], references: [id])
@@ -114,13 +142,30 @@ model Amenity {
   @@map("amenity")
 }
 
+// LODGE: a genuine photograph of KwaNomzi, supplied by the client. STOCK: a
+// licensed stock photo standing in for a real photo that hasn't been
+// supplied yet, chosen to visually match the room it's attached to. This
+// distinction exists so the two are never confused as photography set
+// expands — see resolveRoomImageSrc / RoomGallery for how the guest-facing
+// UI uses it (never presenting a STOCK image as an actual photo of the
+// lodge), and so STOCK rows can be found and swapped out later without
+// guessing which images are real.
+enum RoomImageSource {
+  LODGE
+  STOCK
+}
+
 model RoomImage {
-  id           Int      @id @default(autoincrement())
+  id           Int             @id @default(autoincrement())
   url          String
   altText      String?
-  displayOrder Int      @default(0)
-  isPrimary    Boolean  @default(false)
-  createdAt    DateTime @default(now())
+  displayOrder Int             @default(0)
+  isPrimary    Boolean         @default(false)
+  source       RoomImageSource @default(LODGE)
+  // For STOCK images only: where it came from and under what license, so it
+  // can be attributed or re-verified later. Null for LODGE images.
+  attribution  String?         @db.Text
+  createdAt    DateTime        @default(now())
 
   roomTypeId Int
   roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)

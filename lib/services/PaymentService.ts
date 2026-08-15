@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db/prisma";
+import { Prisma, type PaymentStatus } from "@/lib/generated/prisma/client";
 import { BookingNotFoundError, PaymentNotAllowedError, ServiceNotConfiguredError } from "@/lib/errors";
 
 const YOCO_CHECKOUT_URL = "https://payments.yoco.com/api/checkouts";
@@ -109,4 +110,70 @@ export async function initiateCheckout(bookingId: number): Promise<CheckoutResul
   });
 
   return { paymentId: payment.id, checkoutId: checkout.id, redirectUrl: checkout.redirectUrl };
+}
+
+export interface RevenueSummary {
+  totalRevenueCents: number;
+  todayRevenueCents: number;
+  weekRevenueCents: number;
+  monthRevenueCents: number;
+  paidCount: number;
+  pendingCount: number;
+  failedCount: number;
+  currency: string;
+}
+
+/**
+ * Read-only reporting for the staff dashboard/reports. Revenue is defined as
+ * Payment.status === "SUCCEEDED" — never inferred from Booking.status, since
+ * a booking can be CONFIRMED while its Payment row is the actual record of
+ * what was collected (see WebhookService, the only place SUCCEEDED is set).
+ * Assumes a single currency (ZAR, the app-wide default) for the sum, which
+ * holds for every payment this app has ever created. "Pending" here means
+ * PaymentService's own INITIATED/PENDING states — a payment attempt that
+ * hasn't resolved either way yet.
+ */
+export async function getRevenueSummary(): Promise<RevenueSummary> {
+  const now = new Date();
+  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const weekStart = new Date(todayStart.getTime() - 6 * 86_400_000); // last 7 days inclusive of today
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+
+  const [totalResult, todayResult, weekResult, monthResult, paidCount, pendingCount, failedCount] = await Promise.all([
+    prisma.payment.aggregate({ where: { status: "SUCCEEDED" }, _sum: { amountCents: true } }),
+    prisma.payment.aggregate({ where: { status: "SUCCEEDED", paidAt: { gte: todayStart } }, _sum: { amountCents: true } }),
+    prisma.payment.aggregate({ where: { status: "SUCCEEDED", paidAt: { gte: weekStart } }, _sum: { amountCents: true } }),
+    prisma.payment.aggregate({ where: { status: "SUCCEEDED", paidAt: { gte: monthStart } }, _sum: { amountCents: true } }),
+    prisma.payment.count({ where: { status: "SUCCEEDED" } }),
+    prisma.payment.count({ where: { status: { in: ["INITIATED", "PENDING"] } } }),
+    prisma.payment.count({ where: { status: "FAILED" } }),
+  ]);
+
+  return {
+    totalRevenueCents: totalResult._sum.amountCents ?? 0,
+    todayRevenueCents: todayResult._sum.amountCents ?? 0,
+    weekRevenueCents: weekResult._sum.amountCents ?? 0,
+    monthRevenueCents: monthResult._sum.amountCents ?? 0,
+    paidCount,
+    pendingCount,
+    failedCount,
+    currency: "ZAR",
+  };
+}
+
+const paymentListInclude = {
+  booking: { include: { guest: true, room: { include: { roomType: true } } } },
+} satisfies Prisma.PaymentInclude;
+
+export interface ListPaymentsFilters {
+  status?: PaymentStatus;
+}
+
+/** Full payment ledger for /staff/payments — never exposes provider secrets, only what's already in the Payment row. */
+export function listPayments(filters: ListPaymentsFilters = {}) {
+  return prisma.payment.findMany({
+    where: { status: filters.status },
+    include: paymentListInclude,
+    orderBy: { createdAt: "desc" },
+  });
 }

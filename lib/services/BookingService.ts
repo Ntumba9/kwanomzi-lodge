@@ -135,9 +135,12 @@ export interface ListBookingsFilters {
   from?: string;
   /** Filters on checkIn <= to */
   to?: string;
+  /** Matches booking reference or guest name/email (contains, case-insensitive on MySQL's default collation). */
+  search?: string;
 }
 
 export function listBookings(filters: ListBookingsFilters = {}) {
+  const search = filters.search?.trim();
   return prisma.booking.findMany({
     where: {
       status: filters.status,
@@ -145,6 +148,14 @@ export function listBookings(filters: ListBookingsFilters = {}) {
         gte: filters.from ? parseDateOnly(filters.from) : undefined,
         lte: filters.to ? parseDateOnly(filters.to) : undefined,
       },
+      OR: search
+        ? [
+            { bookingReference: { contains: search } },
+            { guest: { firstName: { contains: search } } },
+            { guest: { lastName: { contains: search } } },
+            { guest: { email: { contains: search } } },
+          ]
+        : undefined,
     },
     include: bookingListInclude,
     orderBy: { createdAt: "desc" },
@@ -176,15 +187,83 @@ export async function findBookingForGuest(reference: string, email: string) {
 export async function getDashboardStats() {
   const today = todayUtc();
 
-  const [arrivalsToday, departuresToday, upcomingConfirmed, pendingCount, activeRoomCount] = await Promise.all([
-    prisma.booking.count({ where: { checkIn: today, status: { in: ["CONFIRMED", "CHECKED_IN"] } } }),
-    prisma.booking.count({ where: { checkOut: today, status: "CHECKED_IN" } }),
-    prisma.booking.count({ where: { status: "CONFIRMED", checkIn: { gte: today } } }),
-    prisma.booking.count({ where: { status: { in: ["PENDING", "PAYMENT_PENDING"] } } }),
-    prisma.room.count({ where: { isActive: true } }),
-  ]);
+  const [arrivalsToday, departuresToday, upcomingConfirmed, pendingCount, activeRoomCount, occupiedRoomsCount, pendingPaymentCount] =
+    await Promise.all([
+      prisma.booking.count({ where: { checkIn: today, status: { in: ["CONFIRMED", "CHECKED_IN"] } } }),
+      prisma.booking.count({ where: { checkOut: today, status: "CHECKED_IN" } }),
+      prisma.booking.count({ where: { status: "CONFIRMED", checkIn: { gte: today } } }),
+      prisma.booking.count({ where: { status: { in: ["PENDING", "PAYMENT_PENDING"] } } }),
+      prisma.room.count({ where: { isActive: true } }),
+      // A CHECKED_IN booking's room is occupied for the duration of that
+      // stay — one row per currently-occupied room, by construction (the
+      // BookingNight uniqueness constraint rules out two bookings claiming
+      // the same room on an overlapping night).
+      prisma.booking.count({ where: { status: "CHECKED_IN" } }),
+      prisma.booking.count({ where: { status: "PAYMENT_PENDING" } }),
+    ]);
 
-  return { arrivalsToday, departuresToday, upcomingConfirmed, pendingCount, activeRoomCount };
+  return {
+    arrivalsToday,
+    departuresToday,
+    upcomingConfirmed,
+    pendingCount,
+    activeRoomCount,
+    occupiedRoomsCount,
+    pendingPaymentCount,
+  };
+}
+
+/** Bookings checking out today — what housekeeping needs to turn over, regardless of financial detail. */
+export function getTodaysCheckouts() {
+  const today = todayUtc();
+  return prisma.booking.findMany({
+    where: { checkOut: today, status: { in: ["CHECKED_IN", "CHECKED_OUT"] } },
+    include: bookingListInclude,
+    orderBy: { checkOut: "asc" },
+  });
+}
+
+/** CONFIRMED bookings not yet arrived, soonest check-in first — for a staff "what's coming up" view. */
+export function getUpcomingBookings(limit = 5) {
+  const today = todayUtc();
+  return prisma.booking.findMany({
+    where: { status: "CONFIRMED", checkIn: { gte: today } },
+    include: bookingListInclude,
+    orderBy: { checkIn: "asc" },
+    take: limit,
+  });
+}
+
+/** PAYMENT_PENDING bookings, soonest-expiring hold first — what staff should chase or expect to lapse next. */
+export function getPendingPaymentBookings(limit = 5) {
+  return prisma.booking.findMany({
+    where: { status: "PAYMENT_PENDING" },
+    include: bookingListInclude,
+    orderBy: { holdExpiresAt: "asc" },
+    take: limit,
+  });
+}
+
+/**
+ * Every booking whose stay overlaps the given UTC month, for the calendar
+ * view — standard range-overlap test (checkIn before month end AND checkOut
+ * after month start), not just bookings that start within the month.
+ * Excludes CANCELLED/EXPIRED (no longer occupy anything) and the rare
+ * pre-payment PENDING state, which isn't yet a real hold on the calendar.
+ */
+export function getBookingsForMonth(year: number, month: number) {
+  const monthStart = new Date(Date.UTC(year, month, 1));
+  const monthEnd = new Date(Date.UTC(year, month + 1, 1));
+
+  return prisma.booking.findMany({
+    where: {
+      status: { in: ["CONFIRMED", "CHECKED_IN", "PAYMENT_PENDING", "CHECKED_OUT"] },
+      checkIn: { lt: monthEnd },
+      checkOut: { gt: monthStart },
+    },
+    include: bookingListInclude,
+    orderBy: { checkIn: "asc" },
+  });
 }
 
 // PAYMENT_PENDING -> CONFIRMED is deliberately NOT listed here. KwaNomzi is

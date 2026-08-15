@@ -23,6 +23,10 @@
 # misc
 .DS_Store
 *.pem
+# ...except the RDS CA bundle below — Amazon's own public CA certificate
+# (not a secret), required at runtime to verify the production DB's TLS
+# certificate. See lib/db/prisma.ts.
+!/certs/*.pem
 
 # debug
 npm-debug.log*

@@ -57,8 +57,13 @@ export function Footer() {
           </Button>
         </div>
       </div>
-      <div className="border-t border-mist-100/10 px-4 py-5 text-center text-xs text-mist-100/50 md:px-8">
-        © {new Date().getFullYear()} {business.name}. All rights reserved.
+      <div className="flex flex-col items-center gap-2 border-t border-mist-100/10 px-4 py-5 text-center text-xs text-mist-100/50 md:flex-row md:justify-between md:px-8">
+        <p>
+          © {new Date().getFullYear()} {business.name}. All rights reserved.
+        </p>
+        <Link href="/staff/login" className="text-mist-100/50 hover:text-mist-100/80">
+          Staff Portal
+        </Link>
       </div>
     </footer>
   );

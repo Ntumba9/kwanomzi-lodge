@@ -13,6 +13,19 @@ export async function getBookingHoldMinutes(): Promise<number> {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : FALLBACK_BOOKING_HOLD_MINUTES;
 }
 
+/** Staff-facing setter (see app/staff/settings) — writes the same Setting row getBookingHoldMinutes() reads. */
+export async function setBookingHoldMinutes(minutes: number): Promise<void> {
+  await prisma.setting.upsert({
+    where: { key: BOOKING_HOLD_MINUTES_KEY },
+    update: { value: String(minutes) },
+    create: {
+      key: BOOKING_HOLD_MINUTES_KEY,
+      value: String(minutes),
+      description: "Minutes a PENDING/PAYMENT_PENDING booking holds a room before it may expire.",
+    },
+  });
+}
+
 const RATE_CARD_KEY = "RATE_CARD";
 
 export interface RateCardEntry {
@@ -45,4 +58,17 @@ export async function getRateCard(): Promise<RateCard | null> {
   } catch {
     return null;
   }
+}
+
+/** Staff-facing setter (see app/staff/settings) — writes the same Setting row getRateCard() reads. */
+export async function setRateCard(rateCard: RateCard): Promise<void> {
+  await prisma.setting.upsert({
+    where: { key: RATE_CARD_KEY },
+    update: { value: JSON.stringify(rateCard) },
+    create: {
+      key: RATE_CARD_KEY,
+      value: JSON.stringify(rateCard),
+      description: "Official KwaNomzi accommodation/meal/package rates.",
+    },
+  });
 }

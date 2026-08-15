@@ -1,12 +1,12 @@
 # KwaNomzi Boutique Lodge — Management & Booking Platform
 
-Production booking and lodge-management system for KwaNomzi Boutique Lodge (Lusikisiki, South Africa). Guests book and pay online; staff manage rooms, guests, and reservations from an admin dashboard.
+Production booking and lodge-management system for KwaNomzi Boutique Lodge (Lusikisiki, South Africa). Guests book and pay online; staff manage rooms, guests, and reservations from the staff portal at `/staff`.
 
 ## Tech Stack
 
 - **Framework:** Next.js 16 (App Router) + React 19 + TypeScript, single modular-monolith codebase
 - **Database:** MySQL, via Prisma ORM (`@prisma/adapter-mariadb`, driver adapter — see [lib/db/prisma.ts](lib/db/prisma.ts))
-- **Auth:** Auth.js v5, credentials provider, JWT sessions — admin dashboard only, no guest accounts
+- **Auth:** Auth.js v5, credentials provider, JWT sessions — staff portal only, no guest accounts
 - **Payments:** Yoco Checkout API, confirmed via webhook (see "Booking & payment lifecycle" below)
 - **Email:** Resend (transactional)
 - **Testing:** Vitest (unit + integration), Playwright (e2e)
@@ -93,7 +93,7 @@ The production URL is `https://kwanomzilodge.co.za`.
 kwanomzilodge.co.za
         │
         ▼
-     Vercel  ── Next.js site, booking flow, admin dashboard, API routes
+     Vercel  ── Next.js site, booking flow, staff portal, API routes
         │
         ├──► MySQL (managed, reachable from Vercel's network)
         ├──► Yoco Checkout API + webhook (payment.succeeded / payment.failed)
@@ -148,7 +148,7 @@ Vercel functions run as multiple concurrent serverless instances rather than one
 ```
 /app
   /(guest)/...     guest-facing pages (public): browse rooms, book, manage booking
-  /admin/...       admin dashboard pages (auth-gated via proxy.ts)
+  /staff/...       staff portal pages — dashboard, bookings, calendar, rooms, guests, settings (auth-gated via proxy.ts)
   /api/...         route handlers (bookings, availability, payments, webhooks, auth, internal)
 /lib
   /services        domain/business logic (BookingService, PaymentService, WebhookService, ...)
@@ -159,7 +159,7 @@ Vercel functions run as multiple concurrent serverless instances rather than one
   /auth            password hashing helpers
   /generated       Prisma client output (generated via `prisma generate`, gitignored)
 auth.ts            Auth.js configuration
-proxy.ts            Next.js 16's middleware equivalent — gates /admin/* behind a session
+proxy.ts            Next.js 16's middleware equivalent — gates /staff/* behind a session
 /prisma
   schema.prisma     data model
   migrations/       Prisma migrations

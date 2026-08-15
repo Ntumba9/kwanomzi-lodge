@@ -31,9 +31,33 @@ export async function findOrCreateGuest(input: GuestInput, client: Client = pris
   });
 }
 
-export function listGuests() {
+export function listGuests(search?: string) {
+  const term = search?.trim();
   return prisma.guest.findMany({
+    where: term
+      ? {
+          OR: [
+            { firstName: { contains: term } },
+            { lastName: { contains: term } },
+            { email: { contains: term } },
+            { phone: { contains: term } },
+          ],
+        }
+      : undefined,
     include: { _count: { select: { bookings: true } } },
     orderBy: { createdAt: "desc" },
+  });
+}
+
+/** Full booking history for the staff guest-detail view. */
+export function getGuestById(id: number) {
+  return prisma.guest.findUnique({
+    where: { id },
+    include: {
+      bookings: {
+        include: { room: { include: { roomType: true } }, payments: true },
+        orderBy: { checkIn: "desc" },
+      },
+    },
   });
 }

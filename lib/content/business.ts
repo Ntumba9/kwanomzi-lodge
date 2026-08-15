@@ -20,3 +20,13 @@ export const business = {
   },
   tagline: "A haven to unwind",
 } as const;
+
+/**
+ * wa.me deep link built from the same phone number above — not a separate
+ * contact detail, just WhatsApp's own URL format (international number,
+ * digits only, no leading +). Prefilled text is a generic greeting, not a
+ * claim about response times or availability we haven't confirmed.
+ */
+export const whatsappUrl = `https://wa.me/${business.phone.replace(/[^0-9]/g, "")}?text=${encodeURIComponent(
+  `Hi KwaNomzi, I'd like to ask about a stay at the lodge.`,
+)}`;

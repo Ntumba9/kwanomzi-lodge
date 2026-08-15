@@ -25,7 +25,10 @@ export function Header() {
           ))}
         </nav>
 
-        <div className="hidden md:block">
+        <div className="hidden items-center gap-3 md:flex">
+          <Button href="/staff/login" size="md" variant="secondary">
+            Staff Portal
+          </Button>
           <Button href="/book" size="md">
             Book Now
           </Button>

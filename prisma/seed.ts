@@ -138,18 +138,32 @@ async function main() {
     },
   });
 
+  // One dev login per role, so every role can actually be exercised locally
+  // without first needing an OWNER logged in to create the others through
+  // /staff/staff. All share DEV_ADMIN_PASSWORD for simplicity — dev-only,
+  // this whole script refuses to run in production (see the guard above).
+  const devStaffAccounts: { email: string; name: string; role: "OWNER" | "MANAGER" | "RECEPTION" | "HOUSEKEEPING" | "READ_ONLY" }[] = [
+    { email: "admin@example.com", name: "Dev Owner", role: "OWNER" },
+    { email: "manager@example.com", name: "Dev Manager", role: "MANAGER" },
+    { email: "reception@example.com", name: "Dev Reception", role: "RECEPTION" },
+    { email: "housekeeping@example.com", name: "Dev Housekeeping", role: "HOUSEKEEPING" },
+    { email: "readonly@example.com", name: "Dev Read Only", role: "READ_ONLY" },
+  ];
   const devAdminPasswordHash = await hashPassword(DEV_ADMIN_PASSWORD);
-  await prisma.user.upsert({
-    where: { email: "admin@example.com" },
-    // Re-applied on every seed run so the dev login keeps working even if
-    // an earlier run created this row with a different/placeholder hash.
-    update: { passwordHash: devAdminPasswordHash },
-    create: {
-      email: "admin@example.com",
-      name: "Dev Admin",
-      passwordHash: devAdminPasswordHash,
-    },
-  });
+  for (const account of devStaffAccounts) {
+    await prisma.user.upsert({
+      where: { email: account.email },
+      // Re-applied on every seed run so the dev login keeps working even if
+      // an earlier run created this row with a different/placeholder hash.
+      update: { passwordHash: devAdminPasswordHash, role: account.role },
+      create: {
+        email: account.email,
+        name: account.name,
+        passwordHash: devAdminPasswordHash,
+        role: account.role,
+      },
+    });
+  }
 
   const wifi = await prisma.amenity.upsert({
     where: { name: "Wi-Fi" },
@@ -293,7 +307,10 @@ async function main() {
   }
 
   console.log("Seed complete.");
-  console.log(`Dev admin login: admin@example.com / ${DEV_ADMIN_PASSWORD}`);
+  console.log(`Dev staff logins (all roles), password: ${DEV_ADMIN_PASSWORD}`);
+  for (const account of devStaffAccounts) {
+    console.log(`  ${account.role.padEnd(12)} ${account.email}`);
+  }
 }
 
 main()

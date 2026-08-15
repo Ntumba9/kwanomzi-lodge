@@ -39,9 +39,14 @@ export function MobileNav() {
               </Link>
             ))}
           </nav>
-          <Button href="/book" size="md" className="mt-3 w-full" onClick={() => setOpen(false)}>
-            Book Now
-          </Button>
+          <div className="mt-3 flex flex-col gap-2">
+            <Button href="/book" size="md" className="w-full" onClick={() => setOpen(false)}>
+              Book Now
+            </Button>
+            <Button href="/staff/login" size="md" variant="secondary" className="w-full" onClick={() => setOpen(false)}>
+              Staff Portal
+            </Button>
+          </div>
         </div>
       )}
     </div>

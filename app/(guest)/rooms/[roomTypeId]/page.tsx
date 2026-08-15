@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getRoomTypeById } from "@/lib/services/RoomService";
-import { resolveRoomImageSrc } from "@/lib/content/images";
-import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { resolveRoomImageSrc, sortRoomImages } from "@/lib/content/images";
+import { RoomGallery } from "@/components/RoomGallery";
 import { Button } from "@/components/ui/Button";
 import { formatMoney } from "@/lib/format";
 
@@ -16,21 +16,16 @@ export default async function RoomTypeDetailPage({ params }: PageProps<"/rooms/[
   }
 
   const isSoldOut = roomType.rooms.length === 0;
-  const primaryImage = roomType.images.find((image) => image.isPrimary) ?? roomType.images[0];
+  const galleryImages = sortRoomImages(roomType.images)
+    .map((image) => {
+      const src = resolveRoomImageSrc(image.url);
+      return src ? { id: image.id, url: src, altText: image.altText, isPrimary: image.isPrimary, source: image.source } : null;
+    })
+    .filter((image) => image !== null);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-16 md:px-8">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <PlaceholderImage
-          label={primaryImage?.altText ?? roomType.name}
-          src={resolveRoomImageSrc(primaryImage?.url)}
-          className="aspect-[4/3] rounded-2xl sm:col-span-2 sm:aspect-[16/9]"
-        />
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-1">
-          <PlaceholderImage label={`${roomType.name} detail`} className="aspect-square rounded-2xl" />
-          <PlaceholderImage label={`${roomType.name} detail`} className="aspect-square rounded-2xl" />
-        </div>
-      </div>
+      <RoomGallery roomName={roomType.name} images={galleryImages} />
 
       <div className="mt-10 grid gap-10 md:grid-cols-3">
         <div className="md:col-span-2">

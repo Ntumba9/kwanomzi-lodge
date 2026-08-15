@@ -15,6 +15,30 @@ export interface ImageSlot {
   alt: string;
 }
 
+export interface VideoSlot {
+  path: string;
+  src: string | null;
+  poster: string | null;
+  description: string;
+}
+
+/**
+ * The homepage hero's background video — same drop-in-a-file convention as
+ * siteImages below. `poster` reuses siteImages.hero once that's real; until
+ * then, both are null and the hero renders the placeholder gradient. See
+ * components/HeroMedia.tsx for exactly how these three states (video, poster
+ * image only, placeholder) get chosen.
+ */
+export const siteVideos = {
+  hero: {
+    path: "/videos/lodge-hero.mp4",
+    src: "/videos/lodge-hero.mp4",
+    poster: null,
+    description:
+      "Temporary licensed stock footage (Pexels — aerial view of a green resort with wooden huts, by Nguyễn Thành Nhơn) standing in for real KwaNomzi grounds/pool/exterior footage until that's shot.",
+  },
+} as const satisfies Record<string, VideoSlot>;
+
 export const siteImages = {
   logo: {
     path: "/images/branding/kwanomzi-logo.png",
@@ -47,4 +71,19 @@ export const siteImages = {
 export function resolveRoomImageSrc(url: string | undefined): string | null {
   if (!url) return null;
   return url.startsWith("https://example.com/") ? null : url;
+}
+
+/**
+ * Gallery ordering for a room type's photos: the primary photo always
+ * leads (it's what RoomCard also uses as the single featured image), then
+ * the rest follow by displayOrder. Real KwaNomzi photos are always set as
+ * primary when both exist for a room type — see the room-image seed
+ * script — so this alone is what keeps a genuine photo first without the
+ * gallery needing to know about RoomImage.source itself.
+ */
+export function sortRoomImages<T extends { isPrimary: boolean; displayOrder: number }>(images: T[]): T[] {
+  return [...images].sort((a, b) => {
+    if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
+    return a.displayOrder - b.displayOrder;
+  });
 }
