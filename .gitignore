@@ -56,3 +56,6 @@ next-env.d.ts
 
 # vitest / coverage
 /coverage/
+
+# local-only editor/agent tool state (not project config, never shared)
+.claude/settings.local.json
