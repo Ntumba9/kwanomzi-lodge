@@ -1,4 +1,4 @@
-# KwaNomzi Boutique Lodge — Management & Booking Platform
+# KwaNomzi Boutique Lodge Management & Booking Platform
 
 Production booking and lodge-management system for KwaNomzi Boutique Lodge (Lusikisiki, South Africa). Guests book and pay online; staff manage rooms, guests, and reservations from the staff portal at `/staff`.
 
@@ -14,7 +14,7 @@ Production booking and lodge-management system for KwaNomzi Boutique Lodge (Lusi
 
 ## Booking & payment lifecycle
 
-**KwaNomzi is prepaid.** A booking is never confirmed just because a guest submitted the form or was redirected back from checkout — only a verified Yoco webhook confirms a booking. The browser redirect after checkout is informational only; it renders whatever the database already says.
+**KwaNomzi is prepaid.** A booking is never confirmed just because a guest submitted the form or was redirected back from checkout only a verified Yoco webhook confirms a booking. The browser redirect after checkout is informational only; it renders whatever the database already says.
 
 ```
 Guest selects room/dates → enters details
@@ -29,8 +29,8 @@ Guest selects room/dates → enters details
 
 Key guarantees already implemented (see [lib/services/WebhookService.ts](lib/services/WebhookService.ts), [lib/services/BookingService.ts](lib/services/BookingService.ts)):
 
-- **Idempotency** — each Yoco event id is inserted into `WebhookEvent` under a unique constraint before anything else happens; a redelivered event fails that insert and is dropped as a duplicate.
-- **Amount verification** — the webhook's reported amount is checked against `Booking.totalAmountCents` (a server-computed snapshot from booking creation, never client-supplied); a mismatch is logged to `AuditLog` and does **not** confirm the booking.
+- **Idempotency** each Yoco event id is inserted into `WebhookEvent` under a unique constraint before anything else happens; a redelivered event fails that insert and is dropped as a duplicate.
+- **Amount verification** the webhook's reported amount is checked against `Booking.totalAmountCents` (a server-computed snapshot from booking creation, never client-supplied); a mismatch is logged to `AuditLog` and does **not** confirm the booking.
 - **Stale-booking protection** — if a payment succeeds for a booking that's no longer `PAYMENT_PENDING` (already confirmed, or its hold expired and the room may belong to someone else), it's logged for manual review instead of auto-confirmed.
 - **Double-booking prevention** — one `BookingNight` row per occupied night with `UNIQUE(room_id, stay_date)`; enforced by the database itself, not just an application-level check, plus a `SELECT ... FOR UPDATE` room lock and deadlock-retry to keep concurrent attempts on the same room resolving cleanly rather than racing.
 - **Failed payments are retryable** — a `payment.failed` webhook leaves the booking in `PAYMENT_PENDING` so the guest can retry, rather than destroying it.
