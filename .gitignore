@@ -59,3 +59,6 @@ next-env.d.ts
 
 # local-only editor/agent tool state (not project config, never shared)
 .claude/settings.local.json
+
+.vercel
+.env*
