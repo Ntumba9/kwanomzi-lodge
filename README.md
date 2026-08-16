@@ -16,7 +16,7 @@ Production booking and lodge-management system for KwaNomzi Boutique Lodge (Lusi
 
 **KwaNomzi is prepaid.** A booking is never confirmed just because a guest submitted the form or was redirected back from checkout only a verified Yoco webhook confirms a booking. The browser redirect after checkout is informational only; it renders whatever the database already says.
 
-```
+
 Guest selects room/dates → enters details
   → Booking created as PAYMENT_PENDING (room nights reserved, hold timer starts)
   → Guest redirected to Yoco Checkout
@@ -25,16 +25,16 @@ Guest selects room/dates → enters details
   → Signature verified, amount verified against the booking, event de-duplicated
   → Payment → SUCCEEDED, Booking → CONFIRMED (single transaction)
   → Guest confirmation email + staff paid-reservation email sent
-```
+
 
 Key guarantees already implemented (see [lib/services/WebhookService.ts](lib/services/WebhookService.ts), [lib/services/BookingService.ts](lib/services/BookingService.ts)):
 
 - **Idempotency** each Yoco event id is inserted into `WebhookEvent` under a unique constraint before anything else happens; a redelivered event fails that insert and is dropped as a duplicate.
 - **Amount verification** the webhook's reported amount is checked against `Booking.totalAmountCents` (a server-computed snapshot from booking creation, never client-supplied); a mismatch is logged to `AuditLog` and does **not** confirm the booking.
-- **Stale-booking protection** — if a payment succeeds for a booking that's no longer `PAYMENT_PENDING` (already confirmed, or its hold expired and the room may belong to someone else), it's logged for manual review instead of auto-confirmed.
-- **Double-booking prevention** — one `BookingNight` row per occupied night with `UNIQUE(room_id, stay_date)`; enforced by the database itself, not just an application-level check, plus a `SELECT ... FOR UPDATE` room lock and deadlock-retry to keep concurrent attempts on the same room resolving cleanly rather than racing.
-- **Failed payments are retryable** — a `payment.failed` webhook leaves the booking in `PAYMENT_PENDING` so the guest can retry, rather than destroying it.
-- **Booking hold expiry** — a `PAYMENT_PENDING` booking whose `holdExpiresAt` has passed is expired (releasing its `BookingNight` rows) by `expireStaleHolds()`, run on a schedule — see "Booking hold expiry (cron)" below.
+- **Stale-booking protection**— if a payment succeeds for a booking that's no longer `PAYMENT_PENDING` (already confirmed, or its hold expired and the room may belong to someone else), it's logged for manual review instead of auto-confirmed.
+- **Double-booking prevention** one `BookingNight` row per occupied night with `UNIQUE(room_id, stay_date)`; enforced by the database itself, not just an application-level check, plus a `SELECT ... FOR UPDATE` room lock and deadlock-retry to keep concurrent attempts on the same room resolving cleanly rather than racing.
+- **Failed payments are retryable** a `payment.failed` webhook leaves the booking in `PAYMENT_PENDING` so the guest can retry, rather than destroying it.
+- **Booking hold expiry** a `PAYMENT_PENDING` booking whose `holdExpiresAt` has passed is expired (releasing its `BookingNight` rows) by `expireStaleHolds()`, run on a schedule — see "Booking hold expiry (cron)" below.
 - **Email failures never roll back a payment** — if Resend fails after a booking is confirmed, the error is logged and swallowed; the payment/booking state (already correctly committed) is not affected. There's currently no automatic retry for a failed transactional email — see "Known limitations" below.
 
 ## Local Development
@@ -89,11 +89,11 @@ The production URL is `https://kwanomzilodge.co.za`.
 
 ### Overview
 
-```
+
 kwanomzilodge.co.za
         │
         ▼
-     Vercel  ── Next.js site, booking flow, staff portal, API routes
+     Vercel   Next.js site, booking flow, staff portal, API routes
         │
         ├──► MySQL (managed, reachable from Vercel's network)
         ├──► Yoco Checkout API + webhook (payment.succeeded / payment.failed)
