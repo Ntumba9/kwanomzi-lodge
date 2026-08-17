@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { prisma } from "@/lib/db/prisma";
+import { getPrisma } from "@/lib/db/prisma";
 import type { GuestInput } from "@/lib/services/GuestService";
 import { createBooking, type CreateBookingInput } from "@/lib/services/BookingService";
 
@@ -12,6 +12,7 @@ function uniqueSuffix(): string {
 }
 
 export async function createTestRoomType(basePriceCents = 100000) {
+  const prisma = await getPrisma();
   return prisma.roomType.create({
     data: {
       name: `Integration Test Room Type ${uniqueSuffix()}`,
@@ -22,6 +23,7 @@ export async function createTestRoomType(basePriceCents = 100000) {
 }
 
 export async function createTestRoom(roomTypeId: number, overrides: { priceOverrideCents?: number } = {}) {
+  const prisma = await getPrisma();
   return prisma.room.create({
     data: {
       roomTypeId,
@@ -68,6 +70,7 @@ export async function createTestBooking(overrides: Partial<CreateBookingInput> &
 
 /** A Payment row in INITIATED/PENDING state, as PaymentService.initiateCheckout would leave it after a real Yoco call. */
 export async function createTestPayment(bookingId: number, overrides: { amountCents?: number; providerReference?: string } = {}) {
+  const prisma = await getPrisma();
   const booking = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } });
   return prisma.payment.create({
     data: {

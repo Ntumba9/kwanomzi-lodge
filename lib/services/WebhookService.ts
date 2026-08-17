@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db/prisma";
+import { getPrisma } from "@/lib/db/prisma";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { verifyYocoWebhookSignature, type YocoWebhookHeaders } from "@/lib/yoco/webhookSignature";
 import {
@@ -61,6 +61,8 @@ export async function processYocoWebhook(rawBody: string, headers: YocoWebhookHe
     return { result: "malformed" };
   }
 
+  const prisma = await getPrisma();
+
   // The idempotency gate: a second delivery of the same event id fails this
   // unique insert and we return before touching anything else — the same
   // pattern BookingNight uses for double-booking prevention (see
@@ -115,6 +117,7 @@ async function handlePaymentSucceeded(
   payload: YocoPaymentPayload,
 ): Promise<WebhookOutcome> {
   const booking = payment.booking;
+  const prisma = await getPrisma();
 
   if (payload.amount !== booking.totalAmountCents) {
     await markEventFailed(webhookEventId);
@@ -177,6 +180,7 @@ async function handlePaymentFailed(
   webhookEventId: number,
   payment: Prisma.PaymentGetPayload<{ include: typeof paymentWithBookingInclude }>,
 ): Promise<WebhookOutcome> {
+  const prisma = await getPrisma();
   // Booking deliberately stays PAYMENT_PENDING — a failed attempt is
   // retryable until the hold actually expires (see ALLOWED_TRANSITIONS in
   // BookingService and the Phase 4 plan's decision on this).
@@ -209,6 +213,7 @@ async function safelySendEmail(send: () => Promise<void>) {
 }
 
 async function markEventFailed(webhookEventId: number) {
+  const prisma = await getPrisma();
   await prisma.webhookEvent.update({ where: { id: webhookEventId }, data: { status: "FAILED", processedAt: new Date() } });
 }
 

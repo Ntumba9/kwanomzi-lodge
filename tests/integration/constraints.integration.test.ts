@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { prisma } from "@/lib/db/prisma";
+import { beforeAll, describe, expect, it } from "vitest";
+import { getPrisma } from "@/lib/db/prisma";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { createTestRoomWithType, createTestRoomType, testGuestInput } from "./helpers";
 import { findOrCreateGuest } from "@/lib/services/GuestService";
 import { parseDateOnly } from "@/lib/dates";
+
+let prisma: Awaited<ReturnType<typeof getPrisma>>;
+beforeAll(async () => {
+  prisma = await getPrisma();
+});
 
 function isUniqueConstraintError(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";

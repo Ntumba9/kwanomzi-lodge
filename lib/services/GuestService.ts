@@ -1,5 +1,5 @@
-import { prisma } from "@/lib/db/prisma";
-import { Prisma } from "@/lib/generated/prisma/client";
+import { getPrisma } from "@/lib/db/prisma";
+import { Prisma, type PrismaClient } from "@/lib/generated/prisma/client";
 
 export interface GuestInput {
   firstName: string;
@@ -9,18 +9,23 @@ export interface GuestInput {
   specialRequests?: string;
 }
 
-type Client = Prisma.TransactionClient | typeof prisma;
+type Client = Prisma.TransactionClient | PrismaClient;
 
 /**
  * Guest.email is intentionally not a unique DB constraint (see schema) —
  * households/groups may share one. Reuse-by-email is therefore service-layer
  * logic, not a database guarantee.
+ *
+ * `client` defaults to undefined rather than the prisma singleton directly
+ * (default parameter initializers can't `await`) — resolved to the real
+ * singleton just inside the function body instead.
  */
-export async function findOrCreateGuest(input: GuestInput, client: Client = prisma) {
-  const existing = await client.guest.findFirst({ where: { email: input.email } });
+export async function findOrCreateGuest(input: GuestInput, client?: Client) {
+  const db = client ?? (await getPrisma());
+  const existing = await db.guest.findFirst({ where: { email: input.email } });
   if (existing) return existing;
 
-  return client.guest.create({
+  return db.guest.create({
     data: {
       firstName: input.firstName,
       lastName: input.lastName,
@@ -31,8 +36,9 @@ export async function findOrCreateGuest(input: GuestInput, client: Client = pris
   });
 }
 
-export function listGuests(search?: string) {
+export async function listGuests(search?: string) {
   const term = search?.trim();
+  const prisma = await getPrisma();
   return prisma.guest.findMany({
     where: term
       ? {
@@ -50,7 +56,8 @@ export function listGuests(search?: string) {
 }
 
 /** Full booking history for the staff guest-detail view. */
-export function getGuestById(id: number) {
+export async function getGuestById(id: number) {
+  const prisma = await getPrisma();
   return prisma.guest.findUnique({
     where: { id },
     include: {

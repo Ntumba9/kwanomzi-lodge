@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db/prisma";
+import { getPrisma } from "@/lib/db/prisma";
 import type { UserRole } from "@/lib/generated/prisma/client";
 import { hashPassword } from "@/lib/auth/passwords";
 import { DomainError } from "@/lib/errors";
@@ -15,21 +15,24 @@ export class EmailInUseError extends DomainError {
   }
 }
 
-export function listStaff() {
+export async function listStaff() {
+  const prisma = await getPrisma();
   return prisma.user.findMany({
     select: { id: true, name: true, email: true, role: true, isActive: true, lastLoginAt: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });
 }
 
-export function getStaffById(id: number) {
+export async function getStaffById(id: number) {
+  const prisma = await getPrisma();
   return prisma.user.findUnique({
     where: { id },
     select: { id: true, name: true, email: true, role: true, isActive: true, lastLoginAt: true, createdAt: true },
   });
 }
 
-function countActiveOwners(excludeUserId?: number) {
+async function countActiveOwners(excludeUserId?: number) {
+  const prisma = await getPrisma();
   return prisma.user.count({
     where: { role: "OWNER", isActive: true, id: excludeUserId ? { not: excludeUserId } : undefined },
   });
@@ -43,6 +46,7 @@ export interface CreateStaffInput {
 }
 
 export async function createStaffAccount(input: CreateStaffInput) {
+  const prisma = await getPrisma();
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) {
     throw new EmailInUseError();
@@ -62,6 +66,7 @@ export async function createStaffAccount(input: CreateStaffInput) {
  * state), counting every OTHER active owner besides this user.
  */
 export async function updateStaffRole(userId: number, newRole: UserRole) {
+  const prisma = await getPrisma();
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   if (user.role === "OWNER" && newRole !== "OWNER") {
     const remainingOwners = await countActiveOwners(userId);
@@ -74,6 +79,7 @@ export async function updateStaffRole(userId: number, newRole: UserRole) {
 
 /** Same last-owner protection as updateStaffRole, for the deactivate path. */
 export async function setStaffActive(userId: number, isActive: boolean) {
+  const prisma = await getPrisma();
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   if (user.role === "OWNER" && !isActive) {
     const remainingOwners = await countActiveOwners(userId);
@@ -86,5 +92,6 @@ export async function setStaffActive(userId: number, isActive: boolean) {
 
 export async function resetStaffPassword(userId: number, newPassword: string) {
   const passwordHash = await hashPassword(newPassword);
+  const prisma = await getPrisma();
   await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
 }

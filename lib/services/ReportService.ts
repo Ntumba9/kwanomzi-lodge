@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db/prisma";
+import { getPrisma } from "@/lib/db/prisma";
 import { todayUtc } from "@/lib/dates";
 
 const REPORT_WINDOW_DAYS = 30;
@@ -19,6 +19,7 @@ export interface OccupancyReport {
 export async function getOccupancyReport(): Promise<OccupancyReport> {
   const today = todayUtc();
   const windowEnd = new Date(today.getTime() + REPORT_WINDOW_DAYS * 86_400_000);
+  const prisma = await getPrisma();
 
   const [activeRoomCount, bookedNights] = await Promise.all([
     prisma.room.count({ where: { isActive: true } }),
@@ -45,6 +46,7 @@ export interface BookingVolumeReport {
 
 export async function getBookingVolumeReport(): Promise<BookingVolumeReport> {
   const since = new Date(Date.now() - REPORT_WINDOW_DAYS * 86_400_000);
+  const prisma = await getPrisma();
 
   const bookings = await prisma.booking.groupBy({
     by: ["status"],
@@ -71,6 +73,7 @@ export interface RoomTypePerformance {
 
 /** Bookings and collected revenue per room type, all-time — what's actually earning at the lodge. */
 export async function getRoomTypePerformance(): Promise<RoomTypePerformance[]> {
+  const prisma = await getPrisma();
   const roomTypes = await prisma.roomType.findMany({
     select: {
       id: true,

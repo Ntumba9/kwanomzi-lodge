@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db/prisma";
+import { getPrisma } from "@/lib/db/prisma";
 import { Prisma } from "@/lib/generated/prisma/client";
 
 /**
@@ -16,6 +16,7 @@ export async function recordAuditLog(params: {
   entityId: string;
   metadata?: Record<string, unknown>;
 }) {
+  const prisma = await getPrisma();
   await prisma.auditLog.create({
     data: {
       userId: params.userId,
@@ -27,7 +28,8 @@ export async function recordAuditLog(params: {
   });
 }
 
-export function listAuditLog(limit = 100) {
+export async function listAuditLog(limit = 100) {
+  const prisma = await getPrisma();
   return prisma.auditLog.findMany({
     include: { user: { select: { id: true, name: true, email: true } } },
     orderBy: { createdAt: "desc" },

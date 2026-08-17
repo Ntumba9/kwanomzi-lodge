@@ -1,11 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { prisma } from "@/lib/db/prisma";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { getPrisma } from "@/lib/db/prisma";
 import { initiateCheckout } from "@/lib/services/PaymentService";
 import { transitionBooking, isTransitionAllowed } from "@/lib/services/BookingService";
 import { BookingNotFoundError, PaymentNotAllowedError, ServiceNotConfiguredError, InvalidStatusTransitionError } from "@/lib/errors";
 import { createTestRoomWithType, createTestBooking } from "./helpers";
 
 const ORIGINAL_ENV = { ...process.env };
+
+let prisma: Awaited<ReturnType<typeof getPrisma>>;
+beforeAll(async () => {
+  prisma = await getPrisma();
+});
 
 beforeEach(() => {
   process.env.YOCO_SECRET_KEY = "sk_test_fake_key_for_mocked_requests";
