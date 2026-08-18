@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PrismaClient } from "@/lib/generated/prisma/client";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
+import { ensureRelayListening, type MtlsRelayConfig } from "@/lib/db/mtlsRelay";
 
 declare global {
-  var __prisma: PrismaClient | undefined;
+  var __prismaPromise: Promise<PrismaClient> | undefined;
 }
 
 /**
@@ -44,13 +45,15 @@ const connectionLimit = process.env.DATABASE_CONNECTION_LIMIT
 // MySQL80 and AWS RDS MySQL 8) needs one of two things to transmit
 // credentials on a fresh connection: TLS, or the client fetching the
 // server's RSA public key to encrypt the password itself. Set
-// DATABASE_SSL=true in production (RDS) to use real TLS. Left unset in
-// local dev, where there's no TLS listener to speak to, so we fall back to
-// public-key retrieval instead — safe here since the connection never
-// leaves the loopback interface; deliberately NOT used for production,
-// which gets real TLS instead (see the mariadb.PoolConfig
-// `ssl`/`allowPublicKeyRetrieval` documentation at
-// node_modules/mariadb/types/share.d.ts).
+// DATABASE_SSL=true to use real TLS directly against the database (the
+// direct-RDS path — see relayConfigFromEnv() below for the alternative
+// mTLS-relay path, which handles its own transport security and always
+// uses public-key retrieval at the MySQL-protocol level; see that
+// function's comment for why). Left unset in local dev, where there's no
+// TLS listener to speak to, so we fall back to public-key retrieval
+// instead — safe here since the connection never leaves the loopback
+// interface (see the mariadb.PoolConfig `ssl`/`allowPublicKeyRetrieval`
+// documentation at node_modules/mariadb/types/share.d.ts).
 const sslEnabled = process.env.DATABASE_SSL === "true";
 
 /**
@@ -73,16 +76,119 @@ function loadRdsCaBundle(): string {
   return readFileSync(join(process.cwd(), "certs/rds-eu-north-1-bundle.pem"), "utf8");
 }
 
-const adapter = new PrismaMariaDb({
-  ...adapterConfigFromDatabaseUrl(process.env.DATABASE_URL ?? ""),
-  ...(connectionLimit ? { connectionLimit } : {}),
-  ...(sslEnabled ? { ssl: { ca: loadRdsCaBundle(), rejectUnauthorized: true } } : { allowPublicKeyRetrieval: true }),
-});
+/**
+ * Phase 3: Vercel Hobby/Pro has no static outbound IP, so RDS can't allow-
+ * list it directly — instead the app reaches RDS through an EC2 proxy
+ * (fixed Elastic IP) over mutual TLS. See infra/mtls-relay/ for the EC2
+ * side and lib/db/mtlsRelay.ts for why a local loopback bridge is needed
+ * (the mariadb driver can't speak mTLS to the proxy directly).
+ *
+ * Deliberately presence-gated on DB_RELAY_HOST rather than a separate
+ * on/off flag: as long as these env vars are unset (true of every
+ * environment today, including Production), this function returns
+ * undefined and buildAdapter() below falls through to the exact
+ * direct-RDS connection logic that was already in production before
+ * Phase 3 — nothing changes until these are deliberately set.
+ */
+function relayConfigFromEnv(): MtlsRelayConfig | undefined {
+  const proxyHost = process.env.DB_RELAY_HOST;
+  if (!proxyHost) return undefined;
 
-// Reuses a single PrismaClient across hot reloads in development so `next dev`
-// doesn't exhaust the database connection pool by creating a new client per reload.
-export const prisma = globalThis.__prisma ?? new PrismaClient({ adapter });
+  const proxyPortRaw = process.env.DB_RELAY_PORT;
+  const clientCert = process.env.DB_RELAY_CLIENT_CERT;
+  const clientKey = process.env.DB_RELAY_CLIENT_KEY;
+  const caCert = process.env.DB_RELAY_CA_CERT;
 
-if (process.env.NODE_ENV !== "production") {
-  globalThis.__prisma = prisma;
+  const missing = [
+    !proxyPortRaw && "DB_RELAY_PORT",
+    !clientCert && "DB_RELAY_CLIENT_CERT",
+    !clientKey && "DB_RELAY_CLIENT_KEY",
+    !caCert && "DB_RELAY_CA_CERT",
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    throw new Error(
+      `lib/db/prisma.ts: DB_RELAY_HOST is set but missing required env var(s): ${missing.join(", ")}`,
+    );
+  }
+
+  const proxyPort = Number(proxyPortRaw);
+  if (!Number.isInteger(proxyPort) || proxyPort <= 0) {
+    throw new Error(`lib/db/prisma.ts: DB_RELAY_PORT is not a valid port number: "${proxyPortRaw}"`);
+  }
+
+  return {
+    proxyHost,
+    proxyPort,
+    // Env vars often can't carry literal newlines cleanly (Vercel's UI and
+    // some CLIs collapse them) — accept escaped "\n" as well as real ones.
+    clientCert: normalizePem(clientCert!),
+    clientKey: normalizePem(clientKey!),
+    caCert: normalizePem(caCert!),
+  };
+}
+
+function normalizePem(value: string): string {
+  return value.includes("\\n") ? value.replace(/\\n/g, "\n") : value;
+}
+
+async function buildAdapter(): Promise<PrismaMariaDb> {
+  const dbConfig = adapterConfigFromDatabaseUrl(process.env.DATABASE_URL ?? "");
+  const relayConfig = relayConfigFromEnv();
+
+  if (relayConfig) {
+    // Route through the local mTLS relay instead of connecting to RDS
+    // directly. The relay's outgoing leg to the EC2 proxy is already real
+    // mTLS; past that, stunnel forwards to RDS in plaintext over the
+    // private VPC (the approved Phase 3 architecture — a MySQL-protocol-
+    // aware TLS bridge would be needed to encrypt that hop too, since
+    // stunnel can't perform MySQL's protocol-embedded TLS upgrade, and
+    // that's deliberately out of scope). So this driver never negotiates
+    // MySQL-protocol TLS itself in relay mode — same as local dev, it
+    // authenticates via RSA public-key retrieval instead.
+    const relay = await ensureRelayListening(relayConfig);
+    return new PrismaMariaDb({
+      ...dbConfig,
+      host: relay.host,
+      port: relay.port,
+      ...(connectionLimit ? { connectionLimit } : {}),
+      allowPublicKeyRetrieval: true,
+    });
+  }
+
+  return new PrismaMariaDb({
+    ...dbConfig,
+    ...(connectionLimit ? { connectionLimit } : {}),
+    ...(sslEnabled ? { ssl: { ca: loadRdsCaBundle(), rejectUnauthorized: true } } : { allowPublicKeyRetrieval: true }),
+  });
+}
+
+function createPrismaClient(): Promise<PrismaClient> {
+  return buildAdapter().then((adapter) => new PrismaClient({ adapter }));
+}
+
+// The relay (when active) is started asynchronously, so the client can no
+// longer be constructed eagerly at module load — its host/port depend on
+// the relay actually being bound first. getPrisma() is the lazy async
+// singleton every call site awaits instead.
+//
+// Reuses a single in-flight/resolved client across hot reloads in
+// development (via globalThis) so `next dev` doesn't exhaust the database
+// connection pool by creating a new client per reload. In production
+// (including each Vercel serverless cold start), a fresh module-scope
+// promise is used instead — no hot reloads happen there, and each cold
+// start naturally gets its own client the same way it always has.
+let prodPrismaPromise: Promise<PrismaClient> | undefined;
+
+export function getPrisma(): Promise<PrismaClient> {
+  if (process.env.NODE_ENV !== "production") {
+    if (!globalThis.__prismaPromise) {
+      globalThis.__prismaPromise = createPrismaClient();
+    }
+    return globalThis.__prismaPromise;
+  }
+
+  if (!prodPrismaPromise) {
+    prodPrismaPromise = createPrismaClient();
+  }
+  return prodPrismaPromise;
 }

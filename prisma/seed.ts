@@ -5,7 +5,7 @@
  * it's unambiguous in logs, admin screens, or exports that this is test
  * data, not a real person.
  */
-import { prisma } from "../lib/db/prisma";
+import { getPrisma } from "../lib/db/prisma";
 import { nightsBetween } from "../lib/dates";
 import { calculateTotalCents } from "../lib/money";
 import { generateBookingReference } from "../lib/bookingReference";
@@ -26,12 +26,14 @@ if (process.env.NODE_ENV === "production") {
 // idempotent re-runs are handled here by name/email lookup rather than a
 // hardcoded id.
 async function findOrCreateRoomType(name: string, create: Prisma.RoomTypeCreateInput) {
+  const prisma = await getPrisma();
   const existing = await prisma.roomType.findFirst({ where: { name } });
   if (existing) return existing;
   return prisma.roomType.create({ data: create });
 }
 
 async function findOrCreateGuest(email: string, create: Prisma.GuestCreateInput) {
+  const prisma = await getPrisma();
   const existing = await prisma.guest.findFirst({ where: { email } });
   if (existing) return existing;
   return prisma.guest.create({ data: create });
@@ -58,6 +60,7 @@ async function seedBooking(params: {
   const nights = nightsBetween(params.checkIn, params.checkOut);
   const nightCount = nights.length;
   const totalAmountCents = calculateTotalCents(params.pricePerNightCents, nightCount);
+  const prisma = await getPrisma();
 
   return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.create({
@@ -93,6 +96,7 @@ function daysFromNow(days: number): Date {
 
 async function main() {
   console.log("Seeding development data...");
+  const prisma = await getPrisma();
 
   await prisma.setting.upsert({
     where: { key: "BOOKING_HOLD_MINUTES" },
@@ -319,5 +323,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    await (await getPrisma()).$disconnect();
   });

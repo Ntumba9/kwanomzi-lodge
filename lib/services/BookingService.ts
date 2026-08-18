@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db/prisma";
+import { getPrisma } from "@/lib/db/prisma";
 import { Prisma, type BookingStatus } from "@/lib/generated/prisma/client";
 import { assertValidDateRange, countNights, nightsBetween, parseDateOnly, todayUtc } from "@/lib/dates";
 import { calculateTotalCents } from "@/lib/money";
@@ -27,6 +27,11 @@ const MAX_TRANSACTION_RETRIES = 3;
 const MAX_REFERENCE_RETRIES = 5;
 const RETRY_BASE_DELAY_MS = 25;
 
+// See the comment at the createBooking() $transaction call for why these
+// are raised above Prisma's defaults (maxWait=2000ms, timeout=5000ms).
+const TRANSACTION_MAX_WAIT_MS = 8_000;
+const TRANSACTION_TIMEOUT_MS = 15_000;
+
 /**
  * Creates a PAYMENT_PENDING booking — KwaNomzi is prepaid, so the moment a
  * booking exists it's already committed to "guest must pay to keep this,"
@@ -44,6 +49,7 @@ export async function createBooking(input: CreateBookingInput) {
   const nights = nightsBetween(checkIn, checkOut);
   const nightCount = countNights(checkIn, checkOut);
   const holdMinutes = await getBookingHoldMinutes();
+  const prisma = await getPrisma();
 
   return withDeadlockRetry(() =>
     prisma.$transaction(
@@ -112,7 +118,21 @@ export async function createBooking(input: CreateBookingInput) {
 
         return booking;
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+        // Prisma's defaults (maxWait=2000ms, timeout=5000ms) assume a
+        // low-latency connection to the database. Phase 3's mTLS relay adds
+        // real round-trip latency (Vercel -> EC2 -> RDS) on top of normal
+        // row-lock contention between concurrent booking attempts on the
+        // same room — under that combined latency, a losing transaction can
+        // fail to even ACQUIRE a transaction slot within the 2s default,
+        // surfacing as a raw "Unable to start a transaction in the given
+        // time" error instead of the intended RoomNotAvailableError.
+        // Verified directly: reproduced against the real relay+RDS path
+        // during Phase 3 write-path testing, not assumed from documentation.
+        maxWait: TRANSACTION_MAX_WAIT_MS,
+        timeout: TRANSACTION_TIMEOUT_MS,
+      },
     ),
   );
 }
@@ -139,8 +159,9 @@ export interface ListBookingsFilters {
   search?: string;
 }
 
-export function listBookings(filters: ListBookingsFilters = {}) {
+export async function listBookings(filters: ListBookingsFilters = {}) {
   const search = filters.search?.trim();
+  const prisma = await getPrisma();
   return prisma.booking.findMany({
     where: {
       status: filters.status,
@@ -162,11 +183,13 @@ export function listBookings(filters: ListBookingsFilters = {}) {
   });
 }
 
-export function getBookingById(id: number) {
+export async function getBookingById(id: number) {
+  const prisma = await getPrisma();
   return prisma.booking.findUnique({ where: { id }, include: bookingDetailInclude });
 }
 
-function getBookingByReference(reference: string) {
+async function getBookingByReference(reference: string) {
+  const prisma = await getPrisma();
   return prisma.booking.findUnique({ where: { bookingReference: reference }, include: bookingDetailInclude });
 }
 
@@ -186,6 +209,7 @@ export async function findBookingForGuest(reference: string, email: string) {
 
 export async function getDashboardStats() {
   const today = todayUtc();
+  const prisma = await getPrisma();
 
   const [arrivalsToday, departuresToday, upcomingConfirmed, pendingCount, activeRoomCount, occupiedRoomsCount, pendingPaymentCount] =
     await Promise.all([
@@ -214,8 +238,9 @@ export async function getDashboardStats() {
 }
 
 /** Bookings checking out today — what housekeeping needs to turn over, regardless of financial detail. */
-export function getTodaysCheckouts() {
+export async function getTodaysCheckouts() {
   const today = todayUtc();
+  const prisma = await getPrisma();
   return prisma.booking.findMany({
     where: { checkOut: today, status: { in: ["CHECKED_IN", "CHECKED_OUT"] } },
     include: bookingListInclude,
@@ -224,8 +249,9 @@ export function getTodaysCheckouts() {
 }
 
 /** CONFIRMED bookings not yet arrived, soonest check-in first — for a staff "what's coming up" view. */
-export function getUpcomingBookings(limit = 5) {
+export async function getUpcomingBookings(limit = 5) {
   const today = todayUtc();
+  const prisma = await getPrisma();
   return prisma.booking.findMany({
     where: { status: "CONFIRMED", checkIn: { gte: today } },
     include: bookingListInclude,
@@ -235,7 +261,8 @@ export function getUpcomingBookings(limit = 5) {
 }
 
 /** PAYMENT_PENDING bookings, soonest-expiring hold first — what staff should chase or expect to lapse next. */
-export function getPendingPaymentBookings(limit = 5) {
+export async function getPendingPaymentBookings(limit = 5) {
+  const prisma = await getPrisma();
   return prisma.booking.findMany({
     where: { status: "PAYMENT_PENDING" },
     include: bookingListInclude,
@@ -251,9 +278,10 @@ export function getPendingPaymentBookings(limit = 5) {
  * Excludes CANCELLED/EXPIRED (no longer occupy anything) and the rare
  * pre-payment PENDING state, which isn't yet a real hold on the calendar.
  */
-export function getBookingsForMonth(year: number, month: number) {
+export async function getBookingsForMonth(year: number, month: number) {
   const monthStart = new Date(Date.UTC(year, month, 1));
   const monthEnd = new Date(Date.UTC(year, month + 1, 1));
+  const prisma = await getPrisma();
 
   return prisma.booking.findMany({
     where: {
@@ -292,6 +320,7 @@ export function isTransitionAllowed(from: BookingStatus, to: BookingStatus): boo
 const RELEASES_NIGHTS: ReadonlySet<BookingStatus> = new Set(["CANCELLED", "EXPIRED"]);
 
 export async function transitionBooking(bookingId: number, toStatus: BookingStatus) {
+  const prisma = await getPrisma();
   return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUniqueOrThrow({ where: { id: bookingId } });
 
@@ -316,6 +345,7 @@ export async function transitionBooking(bookingId: number, toStatus: BookingStat
  * so BookingNight release stays a single code path, not duplicated here.
  */
 export async function expireStaleHolds(): Promise<{ expiredCount: number; bookingReferences: string[] }> {
+  const prisma = await getPrisma();
   const stale = await prisma.booking.findMany({
     where: { status: "PAYMENT_PENDING", holdExpiresAt: { lt: new Date() } },
     include: { guest: true, room: { include: { roomType: true } } },
@@ -393,11 +423,19 @@ function isBookingNightConflict(err: unknown): boolean {
 }
 
 /**
- * Retries on transient MySQL contention errors only:
+ * Retries on transient contention errors only:
  *  - deadlock (InnoDB error 1213): a wait-for cycle was detected and one
  *    transaction's whole batch was rolled back — safe and expected to retry.
  *  - lock wait timeout (1205): a transaction waited longer than
  *    innodb_lock_wait_timeout for a lock held by another transaction.
+ *  - P2028 ("Unable to start a transaction in the given time"): Prisma's own
+ *    transaction-acquisition timeout (maxWait), distinct from the two MySQL
+ *    errors above — reproduced directly against the real relay+RDS path
+ *    during Phase 3 write-path testing (two genuinely concurrent
+ *    createBooking calls; the loser hit this before ever reaching MySQL's
+ *    own lock-wait/deadlock detection). Retrying is correct here for the
+ *    same reason as the MySQL contention errors: this is transient
+ *    contention, not a final availability conflict.
  *
  * Prisma normalizes both to error code P2034 ("write conflict or deadlock")
  * on a healthy mapping. We also fall back to matching the raw MySQL error
@@ -428,7 +466,7 @@ async function withDeadlockRetry<T>(fn: () => Promise<T>, attempts = MAX_TRANSAC
 }
 
 function isRetryableContentionError(err: unknown): boolean {
-  if (isPrismaKnownError(err) && err.code === "P2034") return true;
+  if (isPrismaKnownError(err) && (err.code === "P2034" || err.code === "P2028")) return true;
   const message = err instanceof Error ? err.message : String(err);
   return (
     message.includes("1213") ||

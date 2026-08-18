@@ -1,10 +1,15 @@
-import { describe, expect, it } from "vitest";
-import { prisma } from "@/lib/db/prisma";
+import { beforeAll, describe, expect, it } from "vitest";
+import { getPrisma } from "@/lib/db/prisma";
 import { createBooking } from "@/lib/services/BookingService";
 import { findOrCreateGuest } from "@/lib/services/GuestService";
 import { RoomNotAvailableError, InvalidDateRangeError, RoomNotFoundError } from "@/lib/errors";
 import { createTestRoomWithType, testGuestInput } from "./helpers";
 import { formatDateOnly, parseDateOnly } from "@/lib/dates";
+
+let prisma: Awaited<ReturnType<typeof getPrisma>>;
+beforeAll(async () => {
+  prisma = await getPrisma();
+});
 
 function daysFromNow(days: number): string {
   const d = new Date();

@@ -13,7 +13,7 @@
 // Run directly via `npm run create-owner` (tsx), not through the Prisma CLI
 // like seed.ts — so .env isn't loaded automatically unless we do it here.
 import "dotenv/config";
-import { prisma } from "../lib/db/prisma";
+import { getPrisma } from "../lib/db/prisma";
 import { hashPassword } from "../lib/auth/passwords";
 
 async function main() {
@@ -32,6 +32,7 @@ async function main() {
   }
 
   const passwordHash = await hashPassword(password);
+  const prisma = await getPrisma();
 
   const user = await prisma.user.upsert({
     where: { email },
@@ -48,5 +49,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    await (await getPrisma()).$disconnect();
   });

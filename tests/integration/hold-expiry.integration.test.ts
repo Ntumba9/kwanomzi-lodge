@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { prisma } from "@/lib/db/prisma";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { getPrisma } from "@/lib/db/prisma";
 import { expireStaleHolds } from "@/lib/services/BookingService";
 import { createTestRoomWithType, createTestBooking } from "./helpers";
 
@@ -11,6 +11,11 @@ vi.mock("@/lib/services/EmailService", () => ({
 }));
 
 import { sendGuestBookingExpiredEmail } from "@/lib/services/EmailService";
+
+let prisma: Awaited<ReturnType<typeof getPrisma>>;
+beforeAll(async () => {
+  prisma = await getPrisma();
+});
 
 beforeEach(() => {
   vi.clearAllMocks();

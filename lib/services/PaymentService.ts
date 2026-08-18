@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { prisma } from "@/lib/db/prisma";
+import { getPrisma } from "@/lib/db/prisma";
 import { Prisma, type PaymentStatus } from "@/lib/generated/prisma/client";
 import { BookingNotFoundError, PaymentNotAllowedError, ServiceNotConfiguredError } from "@/lib/errors";
 
@@ -25,6 +25,7 @@ export interface CheckoutResult {
  * that moment, which is correct regardless of which URL got hit.
  */
 export async function initiateCheckout(bookingId: number): Promise<CheckoutResult> {
+  const prisma = await getPrisma();
   const booking = await prisma.booking.findUnique({ where: { id: bookingId }, include: { guest: true } });
   if (!booking) {
     throw new BookingNotFoundError();
@@ -134,6 +135,7 @@ export interface RevenueSummary {
  * hasn't resolved either way yet.
  */
 export async function getRevenueSummary(): Promise<RevenueSummary> {
+  const prisma = await getPrisma();
   const now = new Date();
   const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const weekStart = new Date(todayStart.getTime() - 6 * 86_400_000); // last 7 days inclusive of today
@@ -170,7 +172,8 @@ export interface ListPaymentsFilters {
 }
 
 /** Full payment ledger for /staff/payments — never exposes provider secrets, only what's already in the Payment row. */
-export function listPayments(filters: ListPaymentsFilters = {}) {
+export async function listPayments(filters: ListPaymentsFilters = {}) {
+  const prisma = await getPrisma();
   return prisma.payment.findMany({
     where: { status: filters.status },
     include: paymentListInclude,

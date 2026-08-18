@@ -1,8 +1,9 @@
-import { prisma } from "@/lib/db/prisma";
+import { getPrisma } from "@/lib/db/prisma";
 import type { BookingStatus, RoomOperationalStatus } from "@/lib/generated/prisma/client";
 import { todayUtc } from "@/lib/dates";
 
-export function listActiveRooms() {
+export async function listActiveRooms() {
+  const prisma = await getPrisma();
   return prisma.room.findMany({
     where: { isActive: true, roomType: { isActive: true } },
     include: { roomType: { include: { amenities: true, images: true } } },
@@ -11,14 +12,16 @@ export function listActiveRooms() {
 }
 
 /** Admin view — includes inactive rooms/room types, unlike listActiveRooms. */
-export function listAllRooms() {
+export async function listAllRooms() {
+  const prisma = await getPrisma();
   return prisma.room.findMany({
     include: { roomType: { include: { amenities: true, images: true } } },
     orderBy: { id: "asc" },
   });
 }
 
-export function listActiveRoomTypes() {
+export async function listActiveRoomTypes() {
+  const prisma = await getPrisma();
   return prisma.roomType.findMany({
     where: { isActive: true },
     include: { amenities: true, images: true, rooms: { where: { isActive: true } } },
@@ -26,7 +29,8 @@ export function listActiveRoomTypes() {
   });
 }
 
-export function getRoomTypeById(id: number) {
+export async function getRoomTypeById(id: number) {
+  const prisma = await getPrisma();
   return prisma.roomType.findUnique({
     where: { id },
     include: { amenities: true, images: true, rooms: { where: { isActive: true } } },
@@ -40,7 +44,8 @@ export interface CreateRoomTypeInput {
   basePriceCents: number;
 }
 
-export function createRoomType(input: CreateRoomTypeInput) {
+export async function createRoomType(input: CreateRoomTypeInput) {
+  const prisma = await getPrisma();
   return prisma.roomType.create({ data: input });
 }
 
@@ -51,7 +56,8 @@ export interface CreateRoomInput {
   priceOverrideCents?: number;
 }
 
-export function createRoom(input: CreateRoomInput) {
+export async function createRoom(input: CreateRoomInput) {
+  const prisma = await getPrisma();
   return prisma.room.create({ data: input });
 }
 
@@ -68,7 +74,8 @@ export interface UpdateRoomTypeInput {
   isActive?: boolean;
 }
 
-export function updateRoomType(id: number, input: UpdateRoomTypeInput) {
+export async function updateRoomType(id: number, input: UpdateRoomTypeInput) {
+  const prisma = await getPrisma();
   return prisma.roomType.update({ where: { id }, data: input });
 }
 
@@ -79,12 +86,14 @@ export interface UpdateRoomInput {
   isActive?: boolean;
 }
 
-export function updateRoom(id: number, input: UpdateRoomInput) {
+export async function updateRoom(id: number, input: UpdateRoomInput) {
+  const prisma = await getPrisma();
   return prisma.room.update({ where: { id }, data: input });
 }
 
 /** Housekeeping/front-desk operational status — see schema.prisma's RoomOperationalStatus doc. */
-export function updateRoomOperationalStatus(roomId: number, status: RoomOperationalStatus) {
+export async function updateRoomOperationalStatus(roomId: number, status: RoomOperationalStatus) {
+  const prisma = await getPrisma();
   return prisma.room.update({ where: { id: roomId }, data: { operationalStatus: status } });
 }
 
@@ -125,6 +134,7 @@ export interface RoomWithDashboardStatus {
 /** Every active room with its combined dashboard status — for /staff/rooms and the dashboard's room breakdown. */
 export async function listRoomsWithStatus(): Promise<RoomWithDashboardStatus[]> {
   const today = todayUtc();
+  const prisma = await getPrisma();
   const rooms = await prisma.room.findMany({
     where: { isActive: true },
     include: {

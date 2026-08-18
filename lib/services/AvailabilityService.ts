@@ -1,24 +1,29 @@
-import { prisma } from "@/lib/db/prisma";
-import { Prisma } from "@/lib/generated/prisma/client";
+import { getPrisma } from "@/lib/db/prisma";
+import { Prisma, type PrismaClient } from "@/lib/generated/prisma/client";
 import { assertValidDateRange, nightsBetween } from "@/lib/dates";
 import { InvalidDateRangeError } from "@/lib/errors";
 
-type Client = Prisma.TransactionClient | typeof prisma;
+type Client = Prisma.TransactionClient | PrismaClient;
 
 /**
  * Pre-flight check only — NOT the authority. It exists purely to give a
  * fast, friendly response before attempting a write. The actual guarantee
  * against double-booking comes from the UNIQUE(room_id, stay_date)
  * constraint enforced at insert time in BookingService.createBooking.
+ *
+ * `client` defaults to undefined rather than the prisma singleton directly
+ * (default parameter initializers can't `await`) — resolved to the real
+ * singleton just inside the function body instead.
  */
 export async function isRoomAvailable(
   roomId: number,
   checkIn: Date,
   checkOut: Date,
-  client: Client = prisma,
+  client?: Client,
 ): Promise<boolean> {
+  const db = client ?? (await getPrisma());
   const nights = nightsBetween(checkIn, checkOut);
-  const conflict = await client.bookingNight.findFirst({
+  const conflict = await db.bookingNight.findFirst({
     where: { roomId, stayDate: { in: nights } },
   });
   return conflict === null;
@@ -40,6 +45,7 @@ export async function searchAvailableRoomTypes(checkIn: Date, checkOut: Date) {
 
   const nights = nightsBetween(checkIn, checkOut);
 
+  const prisma = await getPrisma();
   const roomTypes = await prisma.roomType.findMany({
     where: { isActive: true },
     include: {

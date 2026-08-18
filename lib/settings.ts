@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db/prisma";
+import { getPrisma } from "@/lib/db/prisma";
 
 // Fallback only — the real, authoritative value lives in the Setting table
 // and is a business decision the client hasn't finalized yet (Phase 0 §21).
@@ -8,6 +8,7 @@ const FALLBACK_BOOKING_HOLD_MINUTES = 15;
 const BOOKING_HOLD_MINUTES_KEY = "BOOKING_HOLD_MINUTES";
 
 export async function getBookingHoldMinutes(): Promise<number> {
+  const prisma = await getPrisma();
   const setting = await prisma.setting.findUnique({ where: { key: BOOKING_HOLD_MINUTES_KEY } });
   const parsed = setting ? Number(setting.value) : NaN;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : FALLBACK_BOOKING_HOLD_MINUTES;
@@ -15,6 +16,7 @@ export async function getBookingHoldMinutes(): Promise<number> {
 
 /** Staff-facing setter (see app/staff/settings) — writes the same Setting row getBookingHoldMinutes() reads. */
 export async function setBookingHoldMinutes(minutes: number): Promise<void> {
+  const prisma = await getPrisma();
   await prisma.setting.upsert({
     where: { key: BOOKING_HOLD_MINUTES_KEY },
     update: { value: String(minutes) },
@@ -51,6 +53,7 @@ export interface RateCard {
  * assumed to equal) any specific RoomType.basePriceCents.
  */
 export async function getRateCard(): Promise<RateCard | null> {
+  const prisma = await getPrisma();
   const setting = await prisma.setting.findUnique({ where: { key: RATE_CARD_KEY } });
   if (!setting) return null;
   try {
@@ -62,6 +65,7 @@ export async function getRateCard(): Promise<RateCard | null> {
 
 /** Staff-facing setter (see app/staff/settings) — writes the same Setting row getRateCard() reads. */
 export async function setRateCard(rateCard: RateCard): Promise<void> {
+  const prisma = await getPrisma();
   await prisma.setting.upsert({
     where: { key: RATE_CARD_KEY },
     update: { value: JSON.stringify(rateCard) },
