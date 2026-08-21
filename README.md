@@ -2,6 +2,16 @@
 
 Production booking and lodge-management system for KwaNomzi Boutique Lodge (Lusikisiki, South Africa). Guests book and pay online; staff manage rooms, guests, and reservations from the staff portal at `/staff`.
 
+**Live:** [www.kwanomzilodge.co.za](https://www.kwanomzilodge.co.za)
+
+### Highlights
+
+- End-to-end guest booking flow (availability search → room selection → payment → confirmation) with a database-enforced double-booking guarantee, not just an application-level check
+- Idempotent, signature-verified Yoco webhook handling — a browser redirect is never treated as proof of payment
+- Custom mTLS relay (Node `net`/`tls`, EC2 + stunnel) so a serverless Vercel deployment can securely reach a private RDS instance without a static-IP add-on
+- Full staff portal: bookings, guests, rooms, payments, audit log, role-based permissions
+- Deep test coverage of concurrency edge cases (simultaneous booking attempts, transaction rollback under real contention)
+
 ## Tech Stack
 
 - **Framework:** Next.js 16 (App Router) + React 19 + TypeScript, single modular-monolith codebase
@@ -117,13 +127,15 @@ Vercel Cron ──(every 5 min)──► GET /api/internal/expire-holds (booking
 
 ### Booking hold expiry (cron)
 
-[vercel.json](vercel.json) defines a Vercel Cron job:
+`expireStaleHolds()` (see [lib/services/BookingService.ts](lib/services/BookingService.ts)) expires any `PAYMENT_PENDING` booking whose hold has passed, releasing its room nights, and is exposed at `GET`/`POST /api/internal/expire-holds` (see [app/api/internal/expire-holds/route.ts](app/api/internal/expire-holds/route.ts)) for exactly this purpose.
+
+**Not yet wired to run automatically** — [vercel.json](vercel.json) does not currently define a Vercel Cron schedule for it. Until that's added, an abandoned/expired hold's room stays blocked until someone manually triggers the sweep below. Planned config:
 
 ```json
-{ "path": "/api/internal/expire-holds", "schedule": "*/5 * * * *" }
+{ "crons": [{ "path": "/api/internal/expire-holds", "schedule": "*/5 * * * *" }] }
 ```
 
-This calls `GET /api/internal/expire-holds` every 5 minutes, which expires any `PAYMENT_PENDING` booking whose hold has passed (releasing its room nights) via `expireStaleHolds()`. The request is authenticated by Vercel automatically sending `Authorization: Bearer <CRON_SECRET>` — see [app/api/internal/expire-holds/route.ts](app/api/internal/expire-holds/route.ts).
+The request would then be authenticated by Vercel automatically sending `Authorization: Bearer <CRON_SECRET>`.
 
 **Vercel plan requirement:** cron jobs running more often than once a day require a **Pro** (or higher) plan — the Hobby plan only permits daily-or-less-frequent schedules. This project needs sub-daily execution (default hold length is 15 minutes; a daily sweep would leave rooms falsely blocked for up to ~24 hours after an abandoned checkout). Confirm the Vercel project is on Pro before relying on this cron; if staying on Hobby, use an external scheduler (e.g. a third-party cron pinger) calling `POST /api/internal/expire-holds` with the `x-internal-secret` header instead.
 
