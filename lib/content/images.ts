@@ -1,43 +1,19 @@
 /**
- * Central registry of brand/marketing image slots. No real KwaNomzi
- * photography or the logo file itself has been placed in the repository
- * yet — every `src` below is `null`, which tells <SiteImage> / <Logo> to
- * render the on-brand PlaceholderImage instead of a broken <img>.
+ * Central registry of brand/marketing image slots. Most `src` values below
+ * are still `null` (no real KwaNomzi photography/logo file placed in the
+ * repo yet for those slots), which tells <SiteImage> / <Logo> to render the
+ * on-brand PlaceholderImage instead of a broken <img>.
  *
  * To go live with a real asset: drop the file at the given `path` under
  * `public/`, then set that entry's `src` to the same path. Nothing else
  * needs to change — every component that renders these already handles
- * both states.
+ * both states. `hero` below is the one slot that's already real.
  */
 export interface ImageSlot {
   path: string;
   src: string | null;
   alt: string;
 }
-
-export interface VideoSlot {
-  path: string;
-  src: string | null;
-  poster: string | null;
-  description: string;
-}
-
-/**
- * The homepage hero's background video — same drop-in-a-file convention as
- * siteImages below. `poster` reuses siteImages.hero once that's real; until
- * then, both are null and the hero renders the placeholder gradient. See
- * components/HeroMedia.tsx for exactly how these three states (video, poster
- * image only, placeholder) get chosen.
- */
-export const siteVideos = {
-  hero: {
-    path: "/videos/lodge-hero.mp4",
-    src: "/videos/lodge-hero.mp4",
-    poster: null,
-    description:
-      "Temporary licensed stock footage (Pexels — aerial view of a green resort with wooden huts, by Nguyễn Thành Nhơn) standing in for real KwaNomzi grounds/pool/exterior footage until that's shot.",
-  },
-} as const satisfies Record<string, VideoSlot>;
 
 export const siteImages = {
   logo: {
@@ -46,9 +22,9 @@ export const siteImages = {
     alt: "KwaNomzi Boutique Lodge logo",
   },
   hero: {
-    path: "/images/lodge/hero.jpg",
-    src: null,
-    alt: "KwaNomzi Boutique Lodge — grounds and entrance",
+    path: "/images/branding/NewBack1.jpeg",
+    src: "/images/branding/NewBack1.jpeg",
+    alt: "The hills and cliffs of KwaBushula, Lusikisiki, near KwaNomzi Boutique Lodge",
   },
   lodgeIntro: {
     path: "/images/lodge/exterior.jpg",

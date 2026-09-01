@@ -8,6 +8,14 @@ export interface AvailableRoom {
   priceOverrideCents: number | null;
 }
 
+export interface RoomImageSummary {
+  id: number;
+  url: string;
+  altText: string | null;
+  displayOrder: number;
+  isPrimary: boolean;
+}
+
 export interface AvailabilityResult {
   roomType: {
     id: number;
@@ -16,6 +24,10 @@ export interface AvailabilityResult {
     capacity: number;
     basePriceCents: number;
     amenities: { id: number; name: string }[];
+    // AvailabilityService.searchAvailableRoomTypes already includes this —
+    // it just wasn't declared here until the homepage quick-reservation
+    // widget needed to render a real room photo.
+    images: RoomImageSummary[];
   };
   availableRooms: AvailableRoom[];
 }

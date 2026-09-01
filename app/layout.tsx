@@ -6,7 +6,9 @@ import "./globals.css";
 const fraunces = Fraunces({
   variable: "--font-fraunces",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  // 700 added for the hero/brand typography treatment — see the hero <h1>
+  // and Logo's "header" size in app/(guest)/page.tsx / components/Logo.tsx.
+  weight: ["400", "500", "600", "700"],
 });
 
 const inter = Inter({

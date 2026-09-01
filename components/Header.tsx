@@ -12,9 +12,9 @@ const navLinks = [
 export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-mist-200/80 bg-mist-50/95 backdrop-blur">
-      <div className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-8">
+      <div className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-8 md:py-4">
         <Link href="/" className="shrink-0">
-          <Logo variant="dark" />
+          <Logo variant="dark" size="header" />
         </Link>
 
         <nav className="hidden items-center gap-8 md:flex">

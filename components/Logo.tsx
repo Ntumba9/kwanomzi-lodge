@@ -19,30 +19,66 @@ import { siteImages } from "@/lib/content/images";
  * circular badge, a simple droplet glyph in the brand blue, and the
  * wordmark split the same way the real logo splits it ("Kwa" in blue,
  * "Nomzi" in stone).
+ *
+ * `size="header"` is a bolder, larger treatment for the sticky nav bar —
+ * the client asked for the top-left branding to carry the same confident,
+ * bold typographic presence as the hero heading (font-bold, larger scale)
+ * rather than the smaller/lighter mark used elsewhere (e.g. the footer,
+ * which keeps the original "default" size — that placement doesn't need
+ * to compete with a hero and stays as it was).
  */
-export function Logo({ variant = "light", className }: { variant?: "light" | "dark"; className?: string }) {
+export function Logo({
+  variant = "light",
+  size = "default",
+  className,
+}: {
+  variant?: "light" | "dark";
+  size?: "default" | "header";
+  className?: string;
+}) {
   if (siteImages.logo.src) {
+    const dimension = size === "header" ? "h-12 w-12 md:h-14 md:w-14" : "h-11 w-11";
     return (
-      <span className={cn("relative inline-block h-11 w-11 shrink-0", className)}>
-        <Image src={siteImages.logo.src} alt={siteImages.logo.alt} fill sizes="44px" className="object-contain" />
+      <span className={cn("relative inline-block shrink-0", dimension, className)}>
+        <Image src={siteImages.logo.src} alt={siteImages.logo.alt} fill sizes="56px" className="object-contain" />
       </span>
     );
   }
 
   const wordmarkColor = variant === "dark" ? "text-ink-950" : "text-mist-50";
   const subColor = variant === "dark" ? "text-stone-500" : "text-stone-300";
+  const isHeader = size === "header";
 
   return (
     <span className={cn("inline-flex items-center gap-2.5", className)}>
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink-950">
-        <DropletIcon className="h-4.5 w-4.5 text-lagoon-400" />
+      <span
+        className={cn(
+          "flex shrink-0 items-center justify-center rounded-full bg-ink-950",
+          isHeader ? "h-11 w-11 md:h-12 md:w-12" : "h-9 w-9",
+        )}
+      >
+        <DropletIcon className={isHeader ? "h-5 w-5 md:h-5.5 md:w-5.5 text-lagoon-400" : "h-4.5 w-4.5 text-lagoon-400"} />
       </span>
       <span className="flex flex-col leading-none">
-        <span className={cn("font-display text-lg font-semibold tracking-wide", wordmarkColor)}>
+        <span
+          className={cn(
+            "font-display tracking-wide",
+            isHeader ? "text-2xl font-bold md:text-3xl" : "text-lg font-semibold",
+            wordmarkColor,
+          )}
+        >
           <span className="text-lagoon-400">Kwa</span>
           {"Nomzi"}
         </span>
-        <span className={cn("font-display text-[10px] italic tracking-wide", subColor)}>Boutique Lodge</span>
+        <span
+          className={cn(
+            "font-display italic tracking-wide",
+            isHeader ? "text-xs md:text-sm" : "text-[10px]",
+            subColor,
+          )}
+        >
+          Boutique Lodge
+        </span>
       </span>
     </span>
   );

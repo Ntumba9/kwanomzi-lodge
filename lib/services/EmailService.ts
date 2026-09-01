@@ -1,5 +1,5 @@
 import { getResendClient, getEmailFrom } from "@/lib/email/resend";
-import { business } from "@/lib/content/business";
+import { staffNotificationEmail } from "@/lib/content/business";
 import {
   guestBookingExpiredEmail,
   guestConfirmationEmail,
@@ -35,5 +35,5 @@ export async function sendGuestBookingExpiredEmail(booking: BookingEmailData) {
 
 export async function sendStaffPaidReservationEmail(booking: BookingEmailData, payment: PaymentEmailData) {
   const { subject, html } = staffPaidReservationEmail(booking, payment);
-  await getResendClient().emails.send({ from: getEmailFrom(), to: business.email, subject, html });
+  await getResendClient().emails.send({ from: getEmailFrom(), to: staffNotificationEmail, subject, html });
 }
