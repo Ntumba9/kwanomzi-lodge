@@ -8,8 +8,11 @@ import { Card, CardBody } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LoadingState } from "@/components/ui/LoadingState";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
+import { MealSelector } from "@/components/MealSelector";
 import { formatMoney, formatDateDisplay } from "@/lib/format";
 import { resolveRoomImageSrc, sortRoomImages } from "@/lib/content/images";
+import { computeRoomTypePriceCents, type RoomTypePriceInput } from "@/lib/pricing";
+import { selectedMealsFromQuantities, calculateMealsTotalCents, type MealKey } from "@/lib/content/meals";
 import type { AvailabilityResult, AvailableRoom, RoomImageSummary, ApiError, GuestDetails } from "./types";
 
 type Step = "dates" | "rooms" | "details" | "review";
@@ -19,7 +22,12 @@ interface SelectedRoom {
   roomTypeName: string;
   roomTypeDescription: string | null;
   room: AvailableRoom;
-  pricePerNightCents: number;
+  // Full pricing model (not a single pre-computed number) — the room type's
+  // price can depend on guestCount (OCCUPANCY_TIERED/PER_GUEST), and
+  // guestCount is only chosen on the next ("details") step, so the actual
+  // per-night rate is computed reactively wherever it's shown — see
+  // lib/pricing.ts's computeRoomTypePriceCents.
+  pricing: RoomTypePriceInput;
   capacity: number;
   // Carried through so the room preview and the pre-payment reservation
   // summary can both show the actual selected room's photo — sourced
@@ -51,6 +59,10 @@ interface BookingWizardProps {
   // summary falls back to a plain count rather than showing a stale split.
   initialAdults?: number;
   initialChildren?: number;
+  // Meal picks carried through from the homepage widget (see
+  // app/(guest)/book/page.tsx) — editable here via the same MealSelector,
+  // never re-fetched or re-derived.
+  initialMeals?: Partial<Record<MealKey, number>>;
 }
 
 const emptyGuest: GuestDetails = { firstName: "", lastName: "", email: "", phone: "", specialRequests: "" };
@@ -66,6 +78,7 @@ export function BookingWizard({
   initialGuestCount,
   initialAdults,
   initialChildren,
+  initialMeals,
 }: BookingWizardProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("dates");
@@ -75,6 +88,7 @@ export function BookingWizard({
   const [selectedRoom, setSelectedRoom] = useState<SelectedRoom | null>(null);
   const [guest, setGuest] = useState<GuestDetails>(emptyGuest);
   const [guestCount, setGuestCount] = useState(initialGuestCount ?? 1);
+  const [mealQuantities, setMealQuantities] = useState<Partial<Record<MealKey, number>>>(initialMeals ?? {});
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,15 +116,7 @@ export function BookingWizard({
         const match = data.find((r) => r.roomType.id === initialRoomTypeId);
         const room = match?.availableRooms[0];
         if (match && room) {
-          selectRoom(
-            match.roomType.id,
-            match.roomType.name,
-            match.roomType.description,
-            room,
-            match.roomType.basePriceCents,
-            match.roomType.capacity,
-            match.roomType.images,
-          );
+          selectRoom(match.roomType, room);
           // selectRoom() always resets guestCount to 1 (correct for the
           // normal manual-selection path) — override it back to what the
           // guest actually chose on the homepage widget, applied after so
@@ -151,23 +157,22 @@ export function BookingWizard({
     }
   }
 
-  function selectRoom(
-    roomTypeId: number,
-    roomTypeName: string,
-    roomTypeDescription: string | null,
-    room: AvailableRoom,
-    basePriceCents: number,
-    capacity: number,
-    images: RoomImageSummary[],
-  ) {
+  function selectRoom(roomType: AvailabilityResult["roomType"], room: AvailableRoom) {
     setSelectedRoom({
-      roomTypeId,
-      roomTypeName,
-      roomTypeDescription,
+      roomTypeId: roomType.id,
+      roomTypeName: roomType.name,
+      roomTypeDescription: roomType.description,
       room,
-      pricePerNightCents: room.priceOverrideCents ?? basePriceCents,
-      capacity,
-      images,
+      pricing: {
+        pricingModel: roomType.pricingModel,
+        basePriceCents: roomType.basePriceCents,
+        soloPriceCents: roomType.soloPriceCents,
+        sharingPriceCents: roomType.sharingPriceCents,
+        perGuestPriceCents: roomType.perGuestPriceCents,
+        capacity: roomType.capacity,
+      },
+      capacity: roomType.capacity,
+      images: roomType.images,
     });
     setGuestCount(1);
     setStep("details");
@@ -204,6 +209,10 @@ export function BookingWizard({
             phone: guest.phone,
             specialRequests: guest.specialRequests || undefined,
           },
+          // Only key + quantity go over the wire — the server looks up the
+          // actual price from lib/content/meals.ts's catalog, never trusts
+          // a client-supplied amount (see BookingService.createBooking).
+          selectedMeals: selectedMealsFromQuantities(mealQuantities).map(({ key, quantity }) => ({ key, quantity })),
         }),
       });
       const bookingBody = (await bookingRes.json()) as { data: { bookingReference: string } } | ApiError;
@@ -248,6 +257,18 @@ export function BookingWizard({
 
   const nights =
     checkIn && checkOut ? Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86_400_000) : 0;
+
+  // Recomputed on every render from the room type's pricing model + the
+  // guest's current guestCount — see lib/pricing.ts. Never a value stored
+  // once at selection time, since OCCUPANCY_TIERED/PER_GUEST rooms price
+  // differently as guestCount changes on the "details" step below.
+  const pricePerNightCents = selectedRoom
+    ? (selectedRoom.room.priceOverrideCents ?? computeRoomTypePriceCents(selectedRoom.pricing, guestCount))
+    : 0;
+  const selectedMeals = selectedMealsFromQuantities(mealQuantities);
+  const mealsTotalCents = calculateMealsTotalCents(selectedMeals);
+  const accommodationTotalCents = pricePerNightCents * nights;
+  const totalCents = accommodationTotalCents + mealsTotalCents;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-16 md:px-8">
@@ -355,8 +376,14 @@ export function BookingWizard({
                 max={selectedRoom.capacity}
                 value={guestCount}
                 onChange={(e) => setGuestCount(Number(e.target.value))}
-                hint={`This room sleeps up to ${selectedRoom.capacity}.`}
+                hint={`This room sleeps up to ${selectedRoom.capacity}. Rate: ${formatMoney(pricePerNightCents)} / night.`}
               />
+              <div className="sm:col-span-2">
+                <MealSelector
+                  quantities={mealQuantities}
+                  onChange={(key, quantity) => setMealQuantities((prev) => ({ ...prev, [key]: quantity }))}
+                />
+              </div>
               <div className="sm:col-span-2">
                 <TextAreaField
                   label="Special requests (optional)"
@@ -392,7 +419,6 @@ export function BookingWizard({
                   .filter(Boolean)
                   .join(", ")
               : `${guestCount} ${guestCount === 1 ? "guest" : "guests"}`;
-            const totalCents = selectedRoom.pricePerNightCents * nights;
 
             return (
               <>
@@ -422,16 +448,38 @@ export function BookingWizard({
                     <SummaryRow label="Check-in" value={formatDateDisplay(checkIn)} />
                     <SummaryRow label="Check-out" value={formatDateDisplay(checkOut)} />
                     <SummaryRow label="Duration" value={`${nights} ${nights === 1 ? "night" : "nights"}`} />
-                    <SummaryRow label="Rate" value={`${formatMoney(selectedRoom.pricePerNightCents)} / night`} />
+                    <SummaryRow label="Rate" value={`${formatMoney(pricePerNightCents)} / night`} />
                   </dl>
+
+                  {selectedMeals.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-ink-700/60">Meals</p>
+                      <ul className="mt-2 flex flex-col gap-1 text-sm text-ink-700/80">
+                        {selectedMeals.map((meal) => (
+                          <li key={meal.key} className="flex items-center justify-between">
+                            <span>
+                              {meal.label} × {meal.quantity}
+                            </span>
+                            <span>{formatMoney(meal.unitPriceCents * meal.quantity)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   <div className="mt-6 rounded-lg bg-mist-100 px-4 py-4">
                     <div className="flex items-center justify-between text-sm text-ink-700/80">
                       <span>
-                        {nights} {nights === 1 ? "night" : "nights"} × {formatMoney(selectedRoom.pricePerNightCents)}
+                        {nights} {nights === 1 ? "night" : "nights"} × {formatMoney(pricePerNightCents)}
                       </span>
-                      <span>{formatMoney(totalCents)}</span>
+                      <span>{formatMoney(accommodationTotalCents)}</span>
                     </div>
+                    {mealsTotalCents > 0 && (
+                      <div className="mt-1 flex items-center justify-between text-sm text-ink-700/80">
+                        <span>Meals</span>
+                        <span>{formatMoney(mealsTotalCents)}</span>
+                      </div>
+                    )}
                     <div className="mt-3 flex items-center justify-between border-t border-mist-200 pt-3 font-display text-lg text-ink-900">
                       <span>Total</span>
                       <span>{formatMoney(totalCents)}</span>
@@ -499,15 +547,7 @@ function RoomsList({
 }: {
   results: AvailabilityResult[];
   initialRoomTypeId?: number;
-  onSelect: (
-    roomTypeId: number,
-    roomTypeName: string,
-    roomTypeDescription: string | null,
-    room: AvailableRoom,
-    basePriceCents: number,
-    capacity: number,
-    images: RoomImageSummary[],
-  ) => void;
+  onSelect: (roomType: AvailabilityResult["roomType"], room: AvailableRoom) => void;
 }) {
   const withRooms = results.filter((r) => r.availableRooms.length > 0);
   const ordered = initialRoomTypeId
@@ -535,25 +575,12 @@ function RoomsList({
                 <div>
                   <p className="font-display text-lg text-ink-900">{roomType.name}</p>
                   <p className="text-sm text-ink-700/70">
-                    {formatMoney(roomType.basePriceCents)} / night · Sleeps {roomType.capacity} · {availableRooms.length}{" "}
-                    {availableRooms.length === 1 ? "room" : "rooms"} available
+                    {formatMoney(computeRoomTypePriceCents(roomType, 1))} / night · Sleeps {roomType.capacity} ·{" "}
+                    {availableRooms.length} {availableRooms.length === 1 ? "room" : "rooms"} available
                   </p>
                 </div>
               </div>
-              <Button
-                onClick={() =>
-                  onSelect(
-                    roomType.id,
-                    roomType.name,
-                    roomType.description,
-                    availableRooms[0]!,
-                    roomType.basePriceCents,
-                    roomType.capacity,
-                    roomType.images,
-                  )
-                }
-              >
-                Select
+              <Button onClick={() => onSelect(roomType, availableRooms[0]!)}>Select
               </Button>
             </CardBody>
           </Card>

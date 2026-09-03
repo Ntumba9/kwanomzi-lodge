@@ -4,9 +4,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMoney } from "@/lib/format";
 import { resolveRoomImageSrc, sortRoomImages } from "@/lib/content/images";
+import { computeRoomTypePriceCents } from "@/lib/pricing";
+import { MEAL_CATALOG, calculateMealsTotalCents, selectedMealsFromQuantities, type MealKey } from "@/lib/content/meals";
 import { PlaceholderImage } from "@/components/ui/PlaceholderImage";
 import { Button } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/LoadingState";
+import { MealSelector } from "@/components/MealSelector";
 import type { AvailabilityResult, AvailableRoom, ApiError } from "@/app/(guest)/book/types";
 
 type Step = "form" | "results";
@@ -35,6 +38,7 @@ export function HomeQuickReservation() {
 
   const [results, setResults] = useState<AvailabilityResult[] | null>(null);
   const [selectedRoomTypeId, setSelectedRoomTypeId] = useState<number | null>(null);
+  const [mealQuantities, setMealQuantities] = useState<Partial<Record<MealKey, number>>>({});
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +78,12 @@ export function HomeQuickReservation() {
       adults: String(adults),
       children: String(children),
     });
+    // Carry the meal picks made here through to /book (editable there too)
+    // — only non-zero quantities, so an untouched meal never shows up.
+    for (const item of MEAL_CATALOG) {
+      const quantity = mealQuantities[item.key] ?? 0;
+      if (quantity > 0) params.set(`meal_${item.key}`, String(quantity));
+    }
     router.push(`/book?${params.toString()}`);
   }
 
@@ -171,6 +181,7 @@ export function HomeQuickReservation() {
                 {withRooms.map(({ roomType, availableRooms }) => {
                   const isSelected = roomType.id === selectedRoomTypeId;
                   const primaryImage = sortRoomImages(roomType.images ?? [])[0];
+                  const priceCents = computeRoomTypePriceCents(roomType, guestCount);
                   return (
                     <button
                       key={roomType.id}
@@ -189,8 +200,8 @@ export function HomeQuickReservation() {
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-display text-base text-ink-900">{roomType.name}</p>
                         <p className="text-xs text-ink-700/70">
-                          {formatMoney(roomType.basePriceCents)} / night · Sleeps {roomType.capacity} ·{" "}
-                          {availableRooms.length} {availableRooms.length === 1 ? "room" : "rooms"} available
+                          {formatMoney(priceCents)} / night · Sleeps {roomType.capacity} · {availableRooms.length}{" "}
+                          {availableRooms.length === 1 ? "room" : "rooms"} available
                         </p>
                       </div>
                     </button>
@@ -205,6 +216,9 @@ export function HomeQuickReservation() {
                   <SelectedRoomDetail
                     result={selectedResult}
                     nights={nights}
+                    guestCount={guestCount}
+                    mealQuantities={mealQuantities}
+                    onMealChange={(key, quantity) => setMealQuantities((prev) => ({ ...prev, [key]: quantity }))}
                     onReserve={() => continueToReserve(selectedResult.roomType.id)}
                   />
                 ) : (
@@ -224,18 +238,29 @@ export function HomeQuickReservation() {
 function SelectedRoomDetail({
   result,
   nights,
+  guestCount,
+  mealQuantities,
+  onMealChange,
   onReserve,
 }: {
   result: AvailabilityResult;
   nights: number;
+  guestCount: number;
+  mealQuantities: Partial<Record<MealKey, number>>;
+  onMealChange: (key: MealKey, quantity: number) => void;
   onReserve: () => void;
 }) {
   const { roomType, availableRooms } = result;
   const room: AvailableRoom | undefined = availableRooms[0];
-  // Room-level override takes precedence over the room type's base rate,
-  // same precedence BookingWizard already uses for the room it selects.
-  const pricePerNightCents = room?.priceOverrideCents ?? roomType.basePriceCents;
-  const totalCents = pricePerNightCents * Math.max(nights, 0);
+  // Room-level override takes precedence over the room type's own pricing
+  // model, same precedence BookingWizard already uses for the room it
+  // selects — see lib/pricing.ts for how basePriceCents/solo/sharing/
+  // perGuest are interpreted otherwise.
+  const pricePerNightCents = room?.priceOverrideCents ?? computeRoomTypePriceCents(roomType, guestCount);
+  const accommodationTotalCents = pricePerNightCents * Math.max(nights, 0);
+  const selectedMeals = selectedMealsFromQuantities(mealQuantities);
+  const mealsTotalCents = calculateMealsTotalCents(selectedMeals);
+  const totalCents = accommodationTotalCents + mealsTotalCents;
   const primaryImage = sortRoomImages(roomType.images ?? [])[0];
 
   return (
@@ -250,6 +275,10 @@ function SelectedRoomDetail({
         {room && room.name !== roomType.name && <p className="text-xs text-ink-700/60">Room: {room.name}</p>}
         {roomType.description && <p className="mt-2 line-clamp-3 text-sm text-ink-700/80">{roomType.description}</p>}
 
+        <div className="mt-4">
+          <MealSelector quantities={mealQuantities} onChange={onMealChange} />
+        </div>
+
         <div className="mt-4 rounded-lg bg-mist-100 px-3 py-3 text-sm">
           <div className="flex items-center justify-between">
             <span className="text-ink-700/80">{formatMoney(pricePerNightCents)}</span>
@@ -261,7 +290,14 @@ function SelectedRoomDetail({
                 <span>
                   {nights} {nights === 1 ? "night" : "nights"} × {formatMoney(pricePerNightCents)}
                 </span>
+                <span>{formatMoney(accommodationTotalCents)}</span>
               </div>
+              {mealsTotalCents > 0 && (
+                <div className="mt-1 flex items-center justify-between text-xs text-ink-700/70">
+                  <span>Meals</span>
+                  <span>{formatMoney(mealsTotalCents)}</span>
+                </div>
+              )}
               <div className="mt-2 flex items-center justify-between border-t border-mist-200 pt-2 font-display text-base text-ink-900">
                 <span>Total</span>
                 <span>{formatMoney(totalCents)}</span>

@@ -1,0 +1,10 @@
+-- AlterTable
+ALTER TABLE `room_type` ADD COLUMN `perGuestPriceCents` INTEGER UNSIGNED NULL,
+    ADD COLUMN `pricingModel` ENUM('FLAT', 'OCCUPANCY_TIERED', 'PER_GUEST') NOT NULL DEFAULT 'FLAT',
+    ADD COLUMN `sharingPriceCents` INTEGER UNSIGNED NULL,
+    ADD COLUMN `soloPriceCents` INTEGER UNSIGNED NULL;
+
+-- AlterTable
+ALTER TABLE `booking` ADD COLUMN `mealsTotalCents` INTEGER UNSIGNED NOT NULL DEFAULT 0,
+    ADD COLUMN `selectedMeals` JSON NULL;
+

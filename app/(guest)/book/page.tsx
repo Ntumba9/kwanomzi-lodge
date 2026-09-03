@@ -1,4 +1,5 @@
 import { BookingWizard } from "./BookingWizard";
+import { MEAL_CATALOG, type MealKey } from "@/lib/content/meals";
 
 function firstValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -25,6 +26,15 @@ export default async function BookPage({ searchParams }: PageProps<"/book">) {
   const initialAdults = parsePositiveInt(firstValue(params.adults));
   const initialChildren = firstValue(params.children) !== undefined ? Number(firstValue(params.children)) : undefined;
 
+  // Meal picks carried through from the homepage widget (meal_breakfast=2
+  // etc — see HomeQuickReservation's continueToReserve). Editable in the
+  // wizard itself, same as every other "initial" value here.
+  const initialMeals: Partial<Record<MealKey, number>> = {};
+  for (const item of MEAL_CATALOG) {
+    const quantity = parsePositiveInt(firstValue(params[`meal_${item.key}`]));
+    if (quantity !== undefined) initialMeals[item.key] = quantity;
+  }
+
   return (
     <BookingWizard
       initialRoomTypeId={Number.isFinite(initialRoomTypeId) ? initialRoomTypeId : undefined}
@@ -37,6 +47,7 @@ export default async function BookPage({ searchParams }: PageProps<"/book">) {
           ? initialChildren
           : undefined
       }
+      initialMeals={initialMeals}
     />
   );
 }

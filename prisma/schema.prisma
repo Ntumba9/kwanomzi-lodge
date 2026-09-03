@@ -77,20 +77,42 @@ model Guest {
 }
 
 model RoomType {
-  id             Int      @id @default(autoincrement())
-  name           String
-  description    String?  @db.Text
-  capacity       Int
-  basePriceCents Int      @db.UnsignedInt
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                 Int                  @id @default(autoincrement())
+  name               String
+  description        String?              @db.Text
+  capacity           Int
+  // Per-night price for the FLAT model, and the fallback used by the other
+  // two models when their own tier isn't set (see lib/pricing.ts's
+  // computeRoomTypePriceCents, the single place all three models are
+  // interpreted). Room.priceOverrideCents still wins over all of this,
+  // same precedent as before this field split.
+  basePriceCents     Int                  @db.UnsignedInt
+  // FLAT: basePriceCents regardless of guest count (e.g. a single room at a
+  // fixed nightly rate). OCCUPANCY_TIERED: soloPriceCents at 1 guest,
+  // sharingPriceCents at 2+ (the lodge's real "per person"/"Sharing" rate
+  // sheet). PER_GUEST: perGuestPriceCents charged per guest, up to capacity
+  // (e.g. a per-bed rate in a multi-bed room).
+  pricingModel       RoomTypePricingModel @default(FLAT)
+  soloPriceCents     Int?                 @db.UnsignedInt
+  sharingPriceCents  Int?                 @db.UnsignedInt
+  perGuestPriceCents Int?                 @db.UnsignedInt
+  isActive           Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 
   rooms     Room[]
   amenities Amenity[]   @relation("RoomTypeAmenities")
   images    RoomImage[]
 
   @@map("room_type")
+}
+
+// See RoomType.pricingModel above for what each value means and
+// lib/pricing.ts for the single function that interprets it.
+enum RoomTypePricingModel {
+  FLAT
+  OCCUPANCY_TIERED
+  PER_GUEST
 }
 
 // Housekeeping/front-desk operational state — distinct from Booking.status.
@@ -204,8 +226,23 @@ model Booking {
   specialRequests String?       @db.Text
 
   // Party size. Nullable — not captured before Phase 4; older/manually
-  // created rows may not have it. Display-only, never used in pricing.
+  // created rows may not have it. Used at creation time to price
+  // OCCUPANCY_TIERED/PER_GUEST room types (see lib/pricing.ts) — the
+  // resulting pricePerNightCents above is still the immutable historical
+  // snapshot actually charged, so a later guestCount edit (there is none
+  // today) could never retroactively change what a booking already cost.
   guestCount Int?
+
+  // Meal add-ons selected at booking time (Breakfast/Lunch/Dinner — see
+  // lib/content/meals.ts for the catalog), snapshotted the same way
+  // pricePerNightCents is: unit prices are read from the catalog at
+  // creation, not trusted from the client, and never recalculated later
+  // even if the catalog's prices change. Each entry is
+  // {key, label, unitPriceCents, quantity}. mealsTotalCents is the sum,
+  // folded into totalAmountCents above (which remains the one number Yoco
+  // is asked to charge).
+  selectedMeals   Json?
+  mealsTotalCents Int   @default(0) @db.UnsignedInt
 
   // Set at creation from a configurable Setting value (never hardcoded).
   // Phase 4 adds the actual sweep (BookingService.expireStaleHolds,

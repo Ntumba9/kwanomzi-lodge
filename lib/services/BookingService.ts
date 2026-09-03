@@ -2,6 +2,8 @@ import { getPrisma } from "@/lib/db/prisma";
 import { Prisma, type BookingStatus } from "@/lib/generated/prisma/client";
 import { assertValidDateRange, countNights, nightsBetween, parseDateOnly, todayUtc } from "@/lib/dates";
 import { calculateTotalCents } from "@/lib/money";
+import { computeRoomTypePriceCents } from "@/lib/pricing";
+import { getMealCatalogItem, calculateMealsTotalCents, type SelectedMeal } from "@/lib/content/meals";
 import { generateBookingReference } from "@/lib/bookingReference";
 import { getBookingHoldMinutes } from "@/lib/settings";
 import { findOrCreateGuest, type GuestInput } from "@/lib/services/GuestService";
@@ -21,6 +23,29 @@ export interface CreateBookingInput {
   guest: GuestInput;
   guestCount?: number;
   specialRequests?: string;
+  // Only key + quantity are trusted from the caller — see resolveSelectedMeals
+  // below for why label/unitPriceCents always come from the server-side catalog.
+  selectedMeals?: { key: string; quantity: number }[];
+}
+
+/**
+ * Maps client-supplied {key, quantity} pairs to full SelectedMeal snapshots
+ * using lib/content/meals.ts's catalog for label/unitPriceCents — never the
+ * client's own numbers, so a tampered request body can't change what a
+ * guest is actually charged. An unknown key is dropped rather than
+ * rejecting the whole booking (defensive against a stale client sending a
+ * since-removed meal key), since the room reservation itself is the part
+ * that must not fail here.
+ */
+function resolveSelectedMeals(input: { key: string; quantity: number }[] | undefined): SelectedMeal[] {
+  if (!input) return [];
+  const resolved: SelectedMeal[] = [];
+  for (const { key, quantity } of input) {
+    const item = getMealCatalogItem(key);
+    if (!item || quantity <= 0) continue;
+    resolved.push({ key: item.key, label: item.label, unitPriceCents: item.priceCents, quantity });
+  }
+  return resolved;
 }
 
 const MAX_TRANSACTION_RETRIES = 3;
@@ -71,8 +96,19 @@ export async function createBooking(input: CreateBookingInput) {
           where: { id: input.roomId },
           include: { roomType: true },
         });
-        const pricePerNightCents = room.priceOverrideCents ?? room.roomType.basePriceCents;
-        const totalAmountCents = calculateTotalCents(pricePerNightCents, nightCount);
+        // Room-level priceOverrideCents always wins (unchanged precedent);
+        // otherwise the room type's own pricing model decides the rate for
+        // this party size — see lib/pricing.ts. guestCount defaults to 1
+        // (the same default the OCCUPANCY_TIERED/PER_GUEST models already
+        // treat "no guest count" as) so an omitted guestCount never
+        // silently prices as a larger party than stated.
+        const pricePerNightCents =
+          room.priceOverrideCents ?? computeRoomTypePriceCents(room.roomType, input.guestCount ?? 1);
+        const accommodationTotalCents = calculateTotalCents(pricePerNightCents, nightCount);
+
+        const selectedMeals = resolveSelectedMeals(input.selectedMeals);
+        const mealsTotalCents = calculateMealsTotalCents(selectedMeals);
+        const totalAmountCents = accommodationTotalCents + mealsTotalCents;
 
         const guest = await findOrCreateGuest(input.guest, tx);
         const bookingReference = await createUniqueBookingReference(tx);
@@ -87,6 +123,13 @@ export async function createBooking(input: CreateBookingInput) {
             nights: nightCount,
             pricePerNightCents,
             totalAmountCents,
+            // Prisma's Json input type wants InputJsonValue, which has no
+            // room for a typed array-of-interfaces like SelectedMeal[] —
+            // this is genuinely JSON-serializable data (string/number
+            // fields only), so the cast is safe, not a type-safety escape
+            // hatch for anything else in this function.
+            selectedMeals: selectedMeals.length > 0 ? (selectedMeals as unknown as Prisma.InputJsonValue) : undefined,
+            mealsTotalCents,
             specialRequests: input.specialRequests,
             guestCount: input.guestCount,
             status: "PAYMENT_PENDING",
