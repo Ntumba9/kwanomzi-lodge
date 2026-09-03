@@ -158,9 +158,15 @@ export function HomeQuickReservation() {
               No rooms available for these dates. Try a different date range.
             </p>
           ) : (
-            <div className="grid gap-6 md:grid-cols-2">
-              {/* Available rooms */}
-              <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              {/* Available rooms. min-w-0 is load-bearing here: grid items
+                  default to min-width:auto (content-based), which without
+                  this override lets a long room name/description push the
+                  whole column wider than its grid track and overflow the
+                  card on mobile instead of wrapping — verified directly
+                  (this exact div measured 447px inside a 303px track before
+                  this fix). */}
+              <div className="flex min-w-0 flex-col gap-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-ink-700/60">Available rooms</p>
                 {withRooms.map(({ roomType, availableRooms }) => {
                   const isSelected = roomType.id === selectedRoomTypeId;
@@ -193,7 +199,7 @@ export function HomeQuickReservation() {
               </div>
 
               {/* Selected room detail */}
-              <div>
+              <div className="min-w-0">
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-ink-700/60">Your selection</p>
                 {selectedResult ? (
                   <SelectedRoomDetail
