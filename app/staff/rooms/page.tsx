@@ -11,6 +11,7 @@ import { RoomTypeForm } from "./RoomTypeForm";
 import { RoomTypeEditForm } from "./RoomTypeEditForm";
 import { RoomForm } from "./RoomForm";
 import { RoomEditForm } from "./RoomEditForm";
+import { RoomImageManager } from "./RoomImageManager";
 
 const STATUS_BADGE: Record<string, string> = {
   AVAILABLE: "bg-emerald-100 text-emerald-800",
@@ -28,7 +29,19 @@ export default async function StaffRoomsPage() {
   const canOperate = hasPermission(role, "rooms:operate");
 
   const rooms = await listAllRooms();
-  const roomTypeMap = new Map<number, { id: number; name: string; description: string | null; capacity: number; basePriceCents: number; isActive: boolean; rooms: typeof rooms }>();
+  const roomTypeMap = new Map<
+    number,
+    {
+      id: number;
+      name: string;
+      description: string | null;
+      capacity: number;
+      basePriceCents: number;
+      isActive: boolean;
+      images: { id: number; url: string; altText: string | null; isPrimary: boolean }[];
+      rooms: typeof rooms;
+    }
+  >();
   for (const room of rooms) {
     const rt = room.roomType;
     if (!roomTypeMap.has(rt.id)) {
@@ -39,6 +52,9 @@ export default async function StaffRoomsPage() {
         capacity: rt.capacity,
         basePriceCents: rt.basePriceCents,
         isActive: rt.isActive,
+        images: [...rt.images]
+          .sort((a, b) => a.displayOrder - b.displayOrder)
+          .map((img) => ({ id: img.id, url: img.url, altText: img.altText, isPrimary: img.isPrimary })),
         rooms: [],
       });
     }
@@ -73,6 +89,7 @@ export default async function StaffRoomsPage() {
               {canManage && <RoomTypeEditForm roomTypeId={rt.id} capacity={rt.capacity} basePriceCents={rt.basePriceCents} />}
             </CardHeader>
             <CardBody className="flex flex-col gap-4">
+              {canManage && <RoomImageManager roomTypeId={rt.id} images={rt.images} />}
               <div className="overflow-x-auto rounded-2xl border border-mist-200">
                 <table className="w-full min-w-max text-left text-sm">
                   <thead className="bg-mist-100 text-xs uppercase tracking-wide text-ink-700/70">

@@ -91,6 +91,72 @@ export async function updateRoom(id: number, input: UpdateRoomInput) {
   return prisma.room.update({ where: { id }, data: input });
 }
 
+export interface AddRoomImageInput {
+  roomTypeId: number;
+  url: string;
+  altText?: string;
+  source?: "LODGE" | "STOCK";
+}
+
+/**
+ * Adds a real, staff-uploaded photo to a room type. The uploaded file
+ * itself is already durably stored (Vercel Blob — see
+ * app/api/staff/rooms/images/route.ts) before this ever runs; this only
+ * records the resulting URL as a RoomImage row. The very first image ever
+ * added to a room type is made primary automatically (a room type with no
+ * primary photo would silently fall back to the placeholder everywhere —
+ * see resolveRoomImageSrc/sortRoomImages), every image after that keeps
+ * whatever primary photo already exists unless explicitly changed via
+ * setRoomImagePrimary.
+ */
+export async function addRoomImage(input: AddRoomImageInput) {
+  const prisma = await getPrisma();
+  const existingCount = await prisma.roomImage.count({ where: { roomTypeId: input.roomTypeId } });
+  return prisma.roomImage.create({
+    data: {
+      roomTypeId: input.roomTypeId,
+      url: input.url,
+      altText: input.altText,
+      source: input.source ?? "LODGE",
+      isPrimary: existingCount === 0,
+      displayOrder: existingCount,
+    },
+  });
+}
+
+/**
+ * Removes a RoomImage row (and its underlying Blob file — see the DELETE
+ * handler in app/api/staff/rooms/images/route.ts, which calls this after
+ * deleting the blob). If the removed image was primary, promotes the next
+ * image (lowest displayOrder) so a room type is never left with photos but
+ * no primary one.
+ */
+export async function deleteRoomImage(imageId: number) {
+  const prisma = await getPrisma();
+  const image = await prisma.roomImage.findUniqueOrThrow({ where: { id: imageId } });
+  await prisma.roomImage.delete({ where: { id: imageId } });
+
+  if (image.isPrimary) {
+    const next = await prisma.roomImage.findFirst({
+      where: { roomTypeId: image.roomTypeId },
+      orderBy: { displayOrder: "asc" },
+    });
+    if (next) await prisma.roomImage.update({ where: { id: next.id }, data: { isPrimary: true } });
+  }
+
+  return image;
+}
+
+/** Makes one image the room type's primary photo; demotes whichever one held that spot before. */
+export async function setRoomImagePrimary(imageId: number) {
+  const prisma = await getPrisma();
+  const image = await prisma.roomImage.findUniqueOrThrow({ where: { id: imageId } });
+  await prisma.$transaction([
+    prisma.roomImage.updateMany({ where: { roomTypeId: image.roomTypeId, isPrimary: true }, data: { isPrimary: false } }),
+    prisma.roomImage.update({ where: { id: imageId }, data: { isPrimary: true } }),
+  ]);
+}
+
 /** Housekeeping/front-desk operational status — see schema.prisma's RoomOperationalStatus doc. */
 export async function updateRoomOperationalStatus(roomId: number, status: RoomOperationalStatus) {
   const prisma = await getPrisma();
