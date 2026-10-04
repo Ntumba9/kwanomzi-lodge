@@ -153,10 +153,19 @@ export default async function GuestHomePage() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-lagoon-600">Welcome</p>
             <h2 className="mt-3 font-display text-3xl font-semibold text-ink-900 md:text-4xl">The KwaNomzi story</h2>
-            <p className="mt-5 text-ink-700/80">
-              Lodge introduction copy has not been supplied yet — this is a placeholder for KwaNomzi&rsquo;s real
-              story, history and philosophy, easy to replace once that content is provided.
-            </p>
+            <div className="mt-5 flex flex-col gap-4 text-ink-700/80">
+              <p>
+                KwaNomzi Boutique Lodge emanated from humble beginnings, born out of a simple, heartfelt need: to give
+                our guests the unforgettable experience of a warm, traditional rural embrace. We wanted to create a
+                space that feels like coming home.
+              </p>
+              <p>
+                Today, while we offer a premium boutique experience, our roots remain unchanged. Every detail and
+                thoughtful fitting has been meticulously designed to protect your peace, guaranteeing a quiet,
+                restorative sleep that leaves you fully regularized.
+              </p>
+              <p className="font-display text-lg italic text-ink-900">A true haven to unwind.</p>
+            </div>
             <Button href="/rooms" variant="secondary" className="mt-6">
               Explore Rooms
             </Button>
