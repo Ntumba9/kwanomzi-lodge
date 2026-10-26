@@ -8,9 +8,17 @@ import {
   updateRoomOperationalStatus,
   updateRoomType,
 } from "@/lib/services/RoomService";
+import { createRoomBlock, deleteRoomBlock } from "@/lib/services/RoomBlockService";
 import { requirePermission } from "@/lib/auth/staffAuth";
 import { recordAuditLog } from "@/lib/services/AuditService";
-import { createRoomSchema, createRoomTypeSchema, roomOperationalStatusSchema, updateRoomSchema, updateRoomTypeSchema } from "@/lib/validation/room";
+import {
+  createRoomSchema,
+  createRoomTypeSchema,
+  roomOperationalStatusSchema,
+  updateRoomSchema,
+  updateRoomTypeSchema,
+  createRoomBlockSchema,
+} from "@/lib/validation/room";
 import { DomainError } from "@/lib/errors";
 
 export interface ActionState {
@@ -165,4 +173,61 @@ export async function updateRoomAction(roomId: number, _prevState: ActionState, 
   revalidatePath("/");
   revalidatePath("/rooms");
   return { success: "Room updated." };
+}
+
+export async function createRoomBlockAction(_prevState: ActionState, formData: FormData): Promise<ActionState> {
+  const session = await requirePermission("rooms:manage");
+
+  const parsed = createRoomBlockSchema.safeParse({
+    roomId: formData.get("roomId"),
+    startDate: formData.get("startDate"),
+    endDate: formData.get("endDate"),
+    reason: formData.get("reason") || undefined,
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid block details." };
+  }
+
+  let blockId: number;
+  try {
+    const block = await createRoomBlock(parsed.data);
+    blockId = block.id;
+  } catch (err) {
+    return { error: err instanceof DomainError ? err.message : "Could not create this block." };
+  }
+
+  await recordAuditLog({
+    userId: Number(session.user.id),
+    action: "ROOM_BLOCK_CREATED",
+    entityType: "RoomBlock",
+    entityId: String(blockId),
+    metadata: { roomId: parsed.data.roomId, startDate: parsed.data.startDate, endDate: parsed.data.endDate },
+  });
+
+  revalidatePath("/staff/rooms");
+  revalidatePath("/");
+  revalidatePath("/rooms");
+  return { success: "Dates blocked." };
+}
+
+export async function deleteRoomBlockAction(blockId: number): Promise<ActionState> {
+  const session = await requirePermission("rooms:manage");
+
+  try {
+    await deleteRoomBlock(blockId);
+  } catch (err) {
+    return { error: err instanceof DomainError ? err.message : "Could not remove this block." };
+  }
+
+  await recordAuditLog({
+    userId: Number(session.user.id),
+    action: "ROOM_BLOCK_DELETED",
+    entityType: "RoomBlock",
+    entityId: String(blockId),
+  });
+
+  revalidatePath("/staff/rooms");
+  revalidatePath("/");
+  revalidatePath("/rooms");
+  return { success: "Block removed." };
 }

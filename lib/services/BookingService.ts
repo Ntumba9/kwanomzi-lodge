@@ -92,6 +92,18 @@ export async function createBooking(input: CreateBookingInput) {
           throw new RoomNotFoundError();
         }
 
+        // A staff-created RoomBlock (maintenance, private use — see
+        // schema.prisma) must block a guest booking exactly as hard as an
+        // existing Booking does. Checked here, inside the same room-row
+        // lock as createRoomBlock itself acquires, so a block created
+        // concurrently with this booking attempt can't race past it.
+        const blockConflict = await tx.roomBlockNight.findFirst({
+          where: { roomId: input.roomId, stayDate: { in: nights } },
+        });
+        if (blockConflict) {
+          throw new RoomNotAvailableError();
+        }
+
         const room = await tx.room.findUniqueOrThrow({
           where: { id: input.roomId },
           include: { roomType: true },

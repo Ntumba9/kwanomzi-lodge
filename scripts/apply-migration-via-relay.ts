@@ -1,7 +1,9 @@
 /**
- * ONE-TIME: applies prisma/migrations/20260903120000_add_room_pricing_models_and_meals
- * directly against production through the mTLS relay, then records it in
- * `_prisma_migrations` so `prisma migrate status`/`deploy` stay in sync.
+ * ONE-TIME (reusable per-migration): applies a prisma/migrations/<name>
+ * migration directly against production through the mTLS relay, then
+ * records it in `_prisma_migrations` so `prisma migrate status`/`deploy`
+ * stay in sync. Update MIGRATION_NAME below for whichever migration needs
+ * applying this time.
  *
  * Bypasses Prisma's own migration engine (which can't route through the
  * relay — see scripts/list-room-types.ts's header for why) by running the
@@ -20,7 +22,7 @@ import { PrismaClient } from "@/lib/generated/prisma/client";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { ensureRelayListening, closeRelay } from "@/lib/db/mtlsRelay";
 
-const MIGRATION_NAME = "20260903120000_add_room_pricing_models_and_meals";
+const MIGRATION_NAME = "20261026190000_add_room_blocks";
 
 function requireEnv(name: string): string {
   const value = process.env[name];

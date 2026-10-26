@@ -20,6 +20,12 @@ export class RoomNotFoundError extends DomainError {
   }
 }
 
+export class RoomBlockNotFoundError extends DomainError {
+  constructor(message = "Room block not found") {
+    super("ROOM_BLOCK_NOT_FOUND", message);
+  }
+}
+
 export class InvalidDateRangeError extends DomainError {
   constructor(message: string) {
     super("INVALID_DATE_RANGE", message);

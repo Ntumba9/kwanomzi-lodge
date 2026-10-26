@@ -23,10 +23,11 @@ export async function isRoomAvailable(
 ): Promise<boolean> {
   const db = client ?? (await getPrisma());
   const nights = nightsBetween(checkIn, checkOut);
-  const conflict = await db.bookingNight.findFirst({
-    where: { roomId, stayDate: { in: nights } },
-  });
-  return conflict === null;
+  const [bookingConflict, blockConflict] = await Promise.all([
+    db.bookingNight.findFirst({ where: { roomId, stayDate: { in: nights } } }),
+    db.roomBlockNight.findFirst({ where: { roomId, stayDate: { in: nights } } }),
+  ]);
+  return bookingConflict === null && blockConflict === null;
 }
 
 /**
@@ -53,7 +54,10 @@ export async function searchAvailableRoomTypes(checkIn: Date, checkOut: Date) {
       images: true,
       rooms: {
         where: { isActive: true },
-        include: { bookingNights: { where: { stayDate: { in: nights } }, select: { id: true } } },
+        include: {
+          bookingNights: { where: { stayDate: { in: nights } }, select: { id: true } },
+          roomBlockNights: { where: { stayDate: { in: nights } }, select: { id: true } },
+        },
       },
     },
     orderBy: { basePriceCents: "asc" },
@@ -61,8 +65,9 @@ export async function searchAvailableRoomTypes(checkIn: Date, checkOut: Date) {
 
   return roomTypes.map(({ rooms, ...roomType }) => ({
     roomType,
-    // bookingNights is only fetched to test availability; every room here
-    // has an empty array by construction, so it's harmless to leave in.
-    availableRooms: rooms.filter((room) => room.bookingNights.length === 0),
+    // bookingNights/roomBlockNights are only fetched to test availability;
+    // every room here has empty arrays by construction, so it's harmless
+    // to leave them in.
+    availableRooms: rooms.filter((room) => room.bookingNights.length === 0 && room.roomBlockNights.length === 0),
   }));
 }

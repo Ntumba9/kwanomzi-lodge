@@ -146,8 +146,10 @@ model Room {
   roomTypeId Int
   roomType   RoomType @relation(fields: [roomTypeId], references: [id])
 
-  bookings      Booking[]
-  bookingNights BookingNight[]
+  bookings        Booking[]
+  bookingNights   BookingNight[]
+  roomBlocks      RoomBlock[]
+  roomBlockNights RoomBlockNight[]
 
   @@unique([roomTypeId, name])
   @@index([roomTypeId])
@@ -291,6 +293,57 @@ model BookingNight {
   @@unique([roomId, stayDate])
   @@index([bookingId])
   @@map("booking_night")
+}
+
+// A staff-created date block (maintenance, private event, owner's own use,
+// etc.) — deliberately NOT a Booking. Reusing Booking/BookingNight for this
+// would mean fabricating a guest and a CONFIRMED status for a "booking" no
+// one ever paid for, which would corrupt guest lists, revenue reporting,
+// and the hard invariant (see WebhookService) that CONFIRMED only ever
+// happens via a verified Yoco payment. A RoomBlock has its own guest-free
+// lifecycle instead, but reuses the exact same mechanism — a child row per
+// blocked night — for the same reason BookingNight does: MySQL has no
+// Postgres-style EXCLUDE constraint, so overlap-prevention becomes a row-
+// uniqueness problem.
+model RoomBlock {
+  id        Int      @id @default(autoincrement())
+  startDate DateTime @db.Date
+  // Exclusive, same semantics as Booking.checkOut — the night of endDate
+  // itself is not blocked, matching how a guest checking in on a block's
+  // end date would not be turned away.
+  endDate   DateTime @db.Date
+  reason    String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roomId Int
+  room   Room @relation(fields: [roomId], references: [id])
+
+  nights RoomBlockNight[]
+
+  @@index([roomId])
+  @@map("room_block")
+}
+
+// The block-side equivalent of BookingNight — see that model's comment for
+// why one row per occupied night, enforced by a DB-level unique
+// constraint, is the actual double-booking prevention mechanism rather
+// than an application-level check alone. A guest booking attempt checks
+// this table (see AvailabilityService, BookingService.createBooking) the
+// same way it already checks BookingNight.
+model RoomBlockNight {
+  id       Int      @id @default(autoincrement())
+  stayDate DateTime @db.Date
+
+  roomBlockId Int
+  roomBlock   RoomBlock @relation(fields: [roomBlockId], references: [id], onDelete: Cascade)
+
+  roomId Int
+  room   Room @relation(fields: [roomId], references: [id])
+
+  @@unique([roomId, stayDate])
+  @@index([roomBlockId])
+  @@map("room_block_night")
 }
 
 enum PaymentStatus {
