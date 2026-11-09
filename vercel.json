@@ -2,6 +2,10 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
+      "path": "/api/internal/reconcile-payments",
+      "schedule": "55 1 * * *"
+    },
+    {
       "path": "/api/internal/expire-holds",
       "schedule": "0 2 * * *"
     }
