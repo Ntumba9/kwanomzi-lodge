@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getPrisma } from "@/lib/db/prisma";
 import { Prisma, type PaymentStatus } from "@/lib/generated/prisma/client";
 import { BookingNotFoundError, PaymentNotAllowedError, ServiceNotConfiguredError } from "@/lib/errors";
+import { fetchYocoCheckout } from "@/lib/yoco/checkoutApi";
 
 const YOCO_CHECKOUT_URL = "https://payments.yoco.com/api/checkouts";
 
@@ -34,6 +35,53 @@ export async function initiateCheckout(bookingId: number): Promise<CheckoutResul
     throw new PaymentNotAllowedError(
       `Booking ${booking.bookingReference} is ${booking.status}, not PAYMENT_PENDING — a checkout cannot be created for it.`,
     );
+  }
+
+  // Guard against the exact failure mode that caused a real double-charge:
+  // a guest (or staff, via "Generate Payment Link") retrying because the
+  // confirmation page hadn't caught up yet, while an earlier checkout had
+  // actually already succeeded or was still being processed by Yoco. Check
+  // every still-open payment attempt on this booking before creating a new
+  // one — never let two live checkouts exist for the same booking at once.
+  const openPayments = await prisma.payment.findMany({
+    where: { bookingId: booking.id, status: "PENDING", providerReference: { not: null } },
+  });
+  for (const openPayment of openPayments) {
+    const existingCheckout = await fetchYocoCheckout(openPayment.providerReference!);
+    if (!existingCheckout) continue;
+
+    if (existingCheckout.status === "completed") {
+      // Confirm it right now instead of leaving it for the reconciliation
+      // sweep to find later — the guest/staff is actively on this page
+      // asking for a new link, so they should see "already paid" immediately,
+      // not get handed a second checkout.
+      const paidAt = new Date();
+      await prisma.$transaction([
+        prisma.payment.update({
+          where: { id: openPayment.id },
+          data: { status: "SUCCEEDED", paidAt, providerReference: existingCheckout.paymentId },
+        }),
+        prisma.booking.update({ where: { id: booking.id }, data: { status: "CONFIRMED" } }),
+        prisma.auditLog.create({
+          data: {
+            action: "PAYMENT_RECONCILED_BEFORE_NEW_CHECKOUT",
+            entityType: "Booking",
+            entityId: String(booking.id),
+            metadata: { paymentId: openPayment.id, checkoutId: openPayment.providerReference },
+          },
+        }),
+      ]);
+      throw new PaymentNotAllowedError(
+        `Booking ${booking.bookingReference} already has a successful payment — it's now confirmed. Refresh before trying again.`,
+      );
+    }
+
+    if (existingCheckout.status === "processing") {
+      throw new PaymentNotAllowedError(
+        `Booking ${booking.bookingReference} has a payment still being processed by Yoco — wait a few minutes and refresh before trying again.`,
+      );
+    }
+    // Anything else (failed/cancelled/expired) is safely superseded by a new attempt.
   }
 
   const secretKey = process.env.YOCO_SECRET_KEY;

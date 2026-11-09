@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { expireStaleHolds } from "@/lib/services/BookingService";
+import { timingSafeSecretEquals } from "@/lib/auth/timingSafeSecret";
 
 /**
  * Guarded by a shared secret rather than admin session auth, since a
@@ -15,13 +16,11 @@ import { expireStaleHolds } from "@/lib/services/BookingService";
  * Either one alone is sufficient; neither is required to equal the other.
  */
 function isAuthorizedSweepRequest(request: Request): boolean {
-  const sweepSecret = process.env.INTERNAL_SWEEP_SECRET;
-  const providedSweepSecret = request.headers.get("x-internal-secret");
-  if (sweepSecret && providedSweepSecret === sweepSecret) return true;
+  if (timingSafeSecretEquals(process.env.INTERNAL_SWEEP_SECRET, request.headers.get("x-internal-secret"))) return true;
 
-  const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get("authorization");
-  if (cronSecret && authHeader === `Bearer ${cronSecret}`) return true;
+  const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : null;
+  if (timingSafeSecretEquals(process.env.CRON_SECRET, bearer)) return true;
 
   return false;
 }

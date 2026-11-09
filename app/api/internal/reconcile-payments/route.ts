@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { reconcilePendingPayments } from "@/lib/services/PaymentReconciliationService";
+import { timingSafeSecretEquals } from "@/lib/auth/timingSafeSecret";
 
 /**
  * Same auth pattern as /api/internal/expire-holds — see that route for why
@@ -9,13 +10,11 @@ import { reconcilePendingPayments } from "@/lib/services/PaymentReconciliationSe
  * leave a payment unconfirmed for a while before this catches it.
  */
 function isAuthorizedSweepRequest(request: Request): boolean {
-  const sweepSecret = process.env.INTERNAL_SWEEP_SECRET;
-  const providedSweepSecret = request.headers.get("x-internal-secret");
-  if (sweepSecret && providedSweepSecret === sweepSecret) return true;
+  if (timingSafeSecretEquals(process.env.INTERNAL_SWEEP_SECRET, request.headers.get("x-internal-secret"))) return true;
 
-  const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get("authorization");
-  if (cronSecret && authHeader === `Bearer ${cronSecret}`) return true;
+  const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : null;
+  if (timingSafeSecretEquals(process.env.CRON_SECRET, bearer)) return true;
 
   return false;
 }
