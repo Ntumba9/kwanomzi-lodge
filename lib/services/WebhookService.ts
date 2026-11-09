@@ -33,7 +33,8 @@ export type WebhookOutcome =
   | { result: "stale_booking" }
   | { result: "confirmed" }
   | { result: "payment_failed" }
-  | { result: "ignored_event_type" };
+  | { result: "ignored_event_type" }
+  | { result: "upstream_error" };
 
 /**
  * Entry point for POST /api/webhooks/yoco. Owns the full flow — signature
@@ -101,7 +102,28 @@ export async function processYocoWebhook(rawBody: string, headers: YocoWebhookHe
 async function handleOrderCompleted(webhookEventId: number, orderId: string): Promise<WebhookOutcome> {
   const prisma = await getPrisma();
 
-  const order = await fetchYocoOrder(orderId);
+  let order;
+  try {
+    order = await fetchYocoOrder(orderId);
+  } catch (err) {
+    // A failed call to the Yoco API itself (auth/scope problem, Yoco outage,
+    // network error) is not a business decision like "unmatched payment" —
+    // it's an infrastructure failure we want Yoco to retry, and we need a
+    // record of *why* it failed, which this previously had neither of: the
+    // error just propagated out of this function uncaught, crashed the
+    // route handler, and left the WebhookEvent stuck at RECEIVED forever
+    // with nothing in AuditLog explaining it.
+    await markEventFailed(webhookEventId);
+    await prisma.auditLog.create({
+      data: {
+        action: "WEBHOOK_ORDER_FETCH_FAILED",
+        entityType: "WebhookEvent",
+        entityId: String(webhookEventId),
+        metadata: { orderId, error: err instanceof Error ? err.message : String(err) },
+      },
+    });
+    return { result: "upstream_error" };
+  }
   if (!order) {
     await markEventFailed(webhookEventId);
     await prisma.auditLog.create({

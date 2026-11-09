@@ -18,6 +18,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: { code: "INVALID_SIGNATURE", message: "Signature verification failed." } }, { status: 401 });
     case "malformed":
       return NextResponse.json({ error: { code: "MALFORMED_PAYLOAD", message: "Could not parse webhook payload." } }, { status: 400 });
+    case "upstream_error":
+      // A failure calling Yoco's own API, not a business decision — ask
+      // Yoco to retry rather than treating it as handled.
+      return NextResponse.json({ error: { code: "UPSTREAM_ERROR", message: "Could not resolve the order with Yoco." } }, { status: 502 });
     // Everything else is a case we understood and handled (even if the
     // outcome was "don't confirm this") — Yoco should not retry any of
     // these, so all return 200.
