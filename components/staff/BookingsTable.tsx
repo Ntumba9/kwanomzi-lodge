@@ -30,7 +30,14 @@ export function BookingsTable({ bookings }: { bookings: BookingListItem[] }) {
       </TableHead>
       <TableBody>
         {bookings.map((booking) => {
-          const latestPayment = [...booking.payments].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+          // Prefer a succeeded payment over a merely more recent one — a
+          // booking can end up with more than one Payment row (e.g. a
+          // duplicate charge from a guest retrying after a confirmation
+          // glitch), and the one that actually paid for the room should
+          // win the display even if it's not the newest row.
+          const latestPayment =
+            booking.payments.find((p) => p.status === "SUCCEEDED") ??
+            [...booking.payments].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
           return (
             <TableRow key={booking.id}>
               <Td>
