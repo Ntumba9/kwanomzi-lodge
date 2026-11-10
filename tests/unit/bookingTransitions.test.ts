@@ -4,7 +4,11 @@ import { isTransitionAllowed } from "@/lib/services/BookingService";
 describe("booking status transitions", () => {
   it("allows the documented happy path", () => {
     expect(isTransitionAllowed("PENDING", "PAYMENT_PENDING")).toBe(true);
-    expect(isTransitionAllowed("PAYMENT_PENDING", "CONFIRMED")).toBe(true);
+    // PAYMENT_PENDING -> CONFIRMED is deliberately absent from
+    // ALLOWED_TRANSITIONS (see BookingService.ts) — only a verified Yoco
+    // webhook may confirm a booking, bypassing transitionBooking()
+    // entirely. This was asserting the opposite of that invariant.
+    expect(isTransitionAllowed("PAYMENT_PENDING", "CONFIRMED")).toBe(false);
     expect(isTransitionAllowed("CONFIRMED", "CHECKED_IN")).toBe(true);
     expect(isTransitionAllowed("CHECKED_IN", "CHECKED_OUT")).toBe(true);
   });
